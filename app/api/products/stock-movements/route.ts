@@ -19,11 +19,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tipo de movimiento inválido" }, { status: 400 });
     }
 
-    // Validar que el producto pertenezca al negocio
+    // Validar que el producto exista
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        userId: session.user.id,
       },
     });
 
@@ -134,7 +133,6 @@ export async function GET(req: NextRequest) {
       const product = await prisma.product.findFirst({
         where: {
           id: productId,
-          userId: session.user.id,
         },
       });
 
