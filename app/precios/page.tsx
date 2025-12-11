@@ -30,7 +30,7 @@ export default function PreciosPage() {
     },
     {
       nombre: "Plan Pro",
-      precio: "$29",
+      precio: "$14.000",
       periodo: "/mes",
       descripcion: "Para negocios en crecimiento",
       caracteristicas: [

@@ -18,9 +18,9 @@
 | Plan | Precio | Productos | Ventas/mes | Usuarios | Multi-sucursal |
 |------|--------|-----------|------------|----------|----------------|
 | FREE | $0 | 100 | 50 | 1 | ❌ |
-| STARTER | $29 | 1,000 | 500 | 3 | ❌ |
-| PRO | $79 | ∞ | ∞ | 10 | ✅ |
-| ENTERPRISE | $199 | ∞ | ∞ | ∞ | ✅ |
+| STARTER | $8,500 | 500 | 1,000 | 3 | ❌ |
+| PRO | $14,000 | 5,000 | 10,000 | 10 | ✅ |
+| ENTERPRISE | $22,000 | ∞ | ∞ | ∞ | ✅ |
 
 #### APIs Creadas:
 - ✅ `/api/subscriptions/create-checkout` - Crear sesión de pago Stripe

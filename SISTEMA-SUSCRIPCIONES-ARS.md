@@ -546,7 +546,7 @@ await prisma.addon.create({
     name: 'Integración Contable',
     slug: 'integracion-contable',
     description: 'Exporta a sistemas contables',
-    priceMonthly: 12000,
+    priceMonthly: 14000,
     features: JSON.stringify([
       'Exportación a TangoGestión',
       'Exportación a Bejerman',

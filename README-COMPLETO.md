@@ -38,7 +38,7 @@ Sistema de Punto de Venta (POS) completo, listo para producción, con modelo de 
 
 | Característica | Free | Starter | Pro | Enterprise |
 |---------------|------|---------|-----|------------|
-| Precio | $0 | $29/mes | $79/mes | $199/mes |
+| Precio | $0 | $8,500/mes | $14,000/mes | $22,000/mes |
 | Productos | 100 | 1,000 | Ilimitado | Ilimitado |
 | Ventas/mes | 50 | 500 | Ilimitadas | Ilimitadas |
 | Usuarios | 1 | 3 | 10 | Ilimitados |

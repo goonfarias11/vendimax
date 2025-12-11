@@ -26,7 +26,7 @@ export const STRIPE_PLANS = {
   },
   STARTER: {
     name: 'Plan Starter',
-    price: 2900, // $29 en centavos
+    price: 850000, // $8,500 ARS en centavos
     priceId: process.env.STRIPE_PRICE_ID_STARTER,
     features: {
       maxProducts: 1000,
@@ -40,7 +40,7 @@ export const STRIPE_PLANS = {
   },
   PRO: {
     name: 'Plan Pro',
-    price: 7900, // $79 en centavos
+    price: 1400000, // $14,000 ARS en centavos
     priceId: process.env.STRIPE_PRICE_ID_PRO,
     features: {
       maxProducts: -1, // ilimitado
@@ -54,7 +54,7 @@ export const STRIPE_PLANS = {
   },
   ENTERPRISE: {
     name: 'Plan Enterprise',
-    price: 19900, // $199 en centavos
+    price: 2200000, // $22,000 ARS en centavos
     priceId: process.env.STRIPE_PRICE_ID_ENTERPRISE,
     features: {
       maxProducts: -1,

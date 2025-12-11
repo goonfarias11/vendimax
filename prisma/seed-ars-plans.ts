@@ -13,8 +13,8 @@ async function main() {
       name: 'Emprendedor',
       slug: 'emprendedor',
       description: 'Ideal para emprendimientos y negocios pequeños',
-      priceMonthly: 20000,
-      priceYearly: 192000, // 20% descuento
+      priceMonthly: 8500,
+      priceYearly: 81600, // 20% descuento
       setupFee: 60000,
       maxUsers: 2,
       maxProducts: 500,
@@ -40,8 +40,8 @@ async function main() {
       name: 'Pyme',
       slug: 'pyme',
       description: 'Para pequeñas y medianas empresas en crecimiento',
-      priceMonthly: 50000,
-      priceYearly: 480000, // 20% descuento
+      priceMonthly: 14000,
+      priceYearly: 134400, // 20% descuento
       setupFee: 60000,
       maxUsers: 5,
       maxProducts: 2000,
@@ -68,8 +68,8 @@ async function main() {
       name: 'Full',
       slug: 'full',
       description: 'Solución completa para empresas en expansión',
-      priceMonthly: 120000,
-      priceYearly: 1152000, // 20% descuento
+      priceMonthly: 22000,
+      priceYearly: 211200, // 20% descuento
       setupFee: 60000,
       maxUsers: null, // ilimitado
       maxProducts: null, // ilimitado
