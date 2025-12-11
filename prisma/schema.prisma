@@ -1,0 +1,720 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USUARIOS Y AUTENTICACIÓN
+// ============================================
+
+enum UserRole {
+  ADMIN        // Acceso total al sistema
+  VENDEDOR     // Puede hacer ventas, ver productos
+  CAJERO       // Solo caja y ventas básicas
+  GERENTE      // Reportes, supervisión, configuración
+  SUPERVISOR   // Ver reportes y supervisar operaciones
+  OWNER        // Dueño del negocio (máximo nivel)
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(VENDEDOR)
+  isActive     Boolean  @default(true)
+  businessId   String?  // Relación con el negocio
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relaciones
+  business       Business?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  sales          Sale[]
+  cashMovements  CashMovement[]
+  purchases      Purchase[]
+  cashClosings   CashClosing[]
+  stockMovements StockMovement[] // Movimientos de stock realizados
+
+  @@index([email])
+  @@index([role])
+  @@index([businessId])
+  @@map("users")
+}
+
+// ============================================
+// SUSCRIPCIONES Y PLANES
+// ============================================
+
+enum PlanType {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  TRIALING
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+model Business {
+  id               String   @id @default(cuid())
+  name             String
+  email            String   @unique
+  phone            String?
+  address          String?
+  taxId            String?  // CUIT/CUIL
+  logo             String?
+  ownerId          String   @unique // El usuario que creó el negocio
+  planType         PlanType @default(FREE)
+  isDemo           Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relaciones
+  users            User[]
+  subscription     Subscription?
+  subscriptionARS  SubscriptionARS?
+  invoices         Invoice[]
+  planBlockLogs    PlanBlockLog[]
+
+  @@index([email])
+  @@index([ownerId])
+  @@index([planType])
+  @@map("businesses")
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  businessId           String             @unique
+  planType             PlanType
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  mpPreapprovalId      String?            @unique
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  trialEnd             DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  // Relaciones
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([stripeSubscriptionId])
+  @@index([mpPreapprovalId])
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id              String   @id @default(cuid())
+  businessId      String
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("ARS")
+  status          String   // paid, unpaid, void
+  stripeInvoiceId String?  @unique
+  mpPaymentId     String?  @unique
+  invoiceNumber   String?
+  invoiceUrl      String?
+  paidAt          DateTime?
+  createdAt       DateTime @default(now())
+
+  // Relaciones
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@index([stripeInvoiceId])
+  @@index([mpPaymentId])
+  @@map("invoices")
+}
+
+// ============================================
+// SISTEMA DE SUSCRIPCIONES EN ARS
+// ============================================
+
+model SubscriptionPlan {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  priceMonthly  Decimal  @db.Decimal(10, 2)
+  priceYearly   Decimal  @db.Decimal(10, 2)
+  setupFee      Decimal  @default(60000) @db.Decimal(10, 2)
+  maxUsers      Int?     // null = ilimitado
+  maxProducts   Int?     // null = ilimitado
+  maxSales      Int?     // null = ilimitado
+  features      Json     @default("[]")
+  isActive      Boolean  @default(true)
+  position      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relaciones
+  subscriptions    SubscriptionARS[]
+  priceAdjustments PriceAdjustment[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("subscription_plans")
+}
+
+model Addon {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  priceMonthly  Decimal  @db.Decimal(10, 2)
+  features      Json     @default("[]")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relaciones
+  subscriptionAddons SubscriptionAddon[]
+  priceAdjustments   PriceAdjustment[]
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("addons")
+}
+
+model SubscriptionARS {
+  id                        String   @id @default(cuid())
+  businessId                String   @unique
+  planId                    String
+  planTier                  PlanTier? // Nivel del plan para lógica de límites
+  status                    String   @default("pending") // pending, active, past_due, canceled
+  billingCycle              String   @default("monthly") // monthly, yearly
+  currentPeriodStart        DateTime
+  currentPeriodEnd          DateTime
+  freeTrial                 Boolean  @default(false) // Si está en prueba gratuita
+  trialEndsAt               DateTime? // Cuándo termina el trial
+  setupFeePaid              Boolean  @default(false)
+  setupFeeAmount            Decimal? @db.Decimal(10, 2)
+  setupFeePaidAt            DateTime?
+  priceMonthly              Decimal  @db.Decimal(10, 2)
+  priceYearly               Decimal? @db.Decimal(10, 2)
+  totalAddons               Decimal  @default(0) @db.Decimal(10, 2)
+  totalMonthly              Decimal  @db.Decimal(10, 2)
+  mercadopagoPreapprovalId  String?
+  cancelAtPeriodEnd         Boolean  @default(false)
+  canceledAt                DateTime?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  // Relaciones
+  business           Business            @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan               SubscriptionPlan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+  subscriptionAddons SubscriptionAddon[]
+  payments           Payment[]
+
+  @@index([businessId])
+  @@index([planId])
+  @@index([status])
+  @@map("subscriptions_ars")
+}
+
+model SubscriptionAddon {
+  id              String    @id @default(cuid())
+  subscriptionId  String
+  addonId         String
+  price           Decimal   @db.Decimal(10, 2)
+  activatedAt     DateTime  @default(now())
+  deactivatedAt   DateTime?
+  isActive        Boolean   @default(true)
+
+  // Relaciones
+  subscription SubscriptionARS @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  addon        Addon           @relation(fields: [addonId], references: [id], onDelete: Restrict)
+
+  @@index([subscriptionId])
+  @@index([addonId])
+  @@map("subscription_addons")
+}
+
+model Payment {
+  id                   String    @id @default(cuid())
+  subscriptionId       String
+  amount               Decimal   @db.Decimal(10, 2)
+  currency             String    @default("ARS")
+  type                 String    // setup_fee, monthly, yearly, addon
+  method               String    // mercadopago, transfer
+  status               String    @default("pending") // pending, approved, rejected
+  mercadopagoPaymentId String?
+  mercadopagoStatus    String?
+  transferReceipt      String?
+  transferProof        String?   // URL del comprobante subido por el cliente
+  transferReference    String?   // Referencia/número de transferencia
+  adminNotes           String?   // Notas del admin (aprobación/rechazo)
+  invoiceNumber        String?
+  paidAt               DateTime?
+  dueDate              DateTime?
+  notes                String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relaciones
+  subscription SubscriptionARS @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([mercadopagoPaymentId])
+  @@map("payments")
+}
+
+model PriceAdjustment {
+  id                 String   @id @default(cuid())
+  planId             String?
+  addonId            String?
+  previousPrice      Decimal  @db.Decimal(10, 2)
+  newPrice           Decimal  @db.Decimal(10, 2)
+  percentage         Decimal? @db.Decimal(5, 2)
+  reason             String
+  ipcValue           Decimal? @db.Decimal(5, 2)
+  appliedAt          DateTime @default(now())
+  appliedBy          String
+  notificationSent   Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  // Relaciones
+  plan  SubscriptionPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  addon Addon?            @relation(fields: [addonId], references: [id], onDelete: SetNull)
+
+  @@index([planId])
+  @@index([addonId])
+  @@map("price_adjustments")
+}
+
+model WebhookLog {
+  id        String   @id @default(cuid())
+  type      String   // payment, subscription_preapproval, etc.
+  source    String   @default("mercadopago") // mercadopago, stripe, etc.
+  payload   Json     // Datos completos del webhook
+  status    String   @default("received") // received, processed, error
+  error     String?  // Mensaje de error si falló
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([source])
+  @@index([status])
+  @@index([createdAt])
+  @@map("webhook_logs")
+}
+
+// ============================================
+// INVENTARIO Y PRODUCTOS
+// ============================================
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relaciones
+  products Product[]
+
+  @@index([name])
+  @@map("categories")
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  sku         String   @unique
+  barcode     String?  @unique
+  description String?
+  price       Decimal  @db.Decimal(10, 2)
+  wholesalePrice Decimal? @db.Decimal(10, 2) // Precio mayorista
+  cost        Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  minStock    Int      @default(0)
+  maxStock    Int?
+  categoryId  String?
+  image       String?
+  images      String[] // Múltiples imágenes
+  unit        String?  @default("unidad") // unidad, kg, litro, metro, etc.
+  taxRate     Decimal  @default(21) @db.Decimal(5, 2) // IVA 21% por defecto
+  hasVariants Boolean  @default(false) // Si tiene variantes (talle, color)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+  variants      ProductVariant[] // Variantes del producto
+  stockMovements StockMovement[] // Historial de movimientos
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([categoryId])
+  @@index([name])
+  @@index([isActive])
+  @@map("products")
+}
+
+// ============================================
+// VENTAS
+// ============================================
+
+enum PaymentMethod {
+  EFECTIVO
+  TARJETA_DEBITO
+  TARJETA_CREDITO
+  TRANSFERENCIA
+  QR
+  CUENTA_CORRIENTE // Crédito del cliente
+  MIXTO            // Combinación de métodos
+  OTRO
+}
+
+enum SaleStatus {
+  COMPLETADO
+  PENDIENTE
+  CANCELADO
+  REEMBOLSADO
+}
+
+model Sale {
+  id             String         @id @default(cuid())
+  userId         String
+  clientId       String?
+  cashClosingId  String?
+  total          Decimal        @db.Decimal(10, 2)
+  subtotal       Decimal        @db.Decimal(10, 2)
+  tax            Decimal        @default(0) @db.Decimal(10, 2)
+  discount       Decimal        @default(0) @db.Decimal(10, 2)
+  discountType   String?        // "percentage" o "fixed"
+  paymentMethod  PaymentMethod
+  hasMixedPayment Boolean       @default(false) // Si tiene pagos mixtos
+  status         SaleStatus     @default(COMPLETADO)
+  notes          String?
+  ticketNumber   Int?           // Número de ticket para impresión
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relaciones
+  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  client       Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  cashClosing  CashClosing?  @relation(fields: [cashClosingId], references: [id], onDelete: SetNull)
+  saleItems    SaleItem[]
+  salePayments SalePayment[] // Pagos mixtos
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([cashClosingId])
+  @@index([createdAt])
+  @@index([status])
+  @@map("sales")
+}
+
+model SaleItem {
+  id        String   @id @default(cuid())
+  saleId    String
+  productId String
+  quantity  Int
+  price     Decimal  @db.Decimal(10, 2)
+  subtotal  Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now())
+
+  // Relaciones
+  sale    Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+// ============================================
+// CLIENTES
+// ============================================
+
+model Client {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?  @unique
+  address     String?
+  taxId       String?
+  notes       String?
+  creditLimit Decimal  @default(0) @db.Decimal(10, 2) // Límite de crédito
+  currentDebt Decimal  @default(0) @db.Decimal(10, 2) // Deuda actual
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  sales Sale[]
+
+  @@index([name])
+  @@index([email])
+  @@index([phone])
+  @@map("clients")
+}
+
+// ============================================
+// PROVEEDORES Y COMPRAS
+// ============================================
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?  @unique
+  address   String?
+  taxId     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  purchases Purchase[]
+
+  @@index([name])
+  @@index([email])
+  @@map("suppliers")
+}
+
+model Purchase {
+  id          String   @id @default(cuid())
+  supplierId  String
+  userId      String
+  total       Decimal  @db.Decimal(10, 2)
+  subtotal    Decimal  @db.Decimal(10, 2)
+  tax         Decimal  @default(0) @db.Decimal(10, 2)
+  invoiceNum  String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  purchaseItems PurchaseItem[]
+
+  @@index([supplierId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String   @id @default(cuid())
+  purchaseId String
+  productId  String
+  quantity   Int
+  cost       Decimal  @db.Decimal(10, 2)
+  subtotal   Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+
+  // Relaciones
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@map("purchase_items")
+}
+
+// ============================================
+// CAJA Y MOVIMIENTOS
+// ============================================
+
+enum CashMovementType {
+  APERTURA
+  CIERRE
+  INGRESO
+  EGRESO
+}
+
+model CashMovement {
+  id          String           @id @default(cuid())
+  type        CashMovementType
+  amount      Decimal          @db.Decimal(10, 2)
+  description String?
+  reference   String?
+  userId      String
+  createdAt   DateTime         @default(now())
+
+  // Relaciones
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("cash_movements")
+}
+
+// ============================================
+// CIERRE DE CAJA
+// ============================================
+
+model CashClosing {
+  id            String   @id @default(cuid())
+  number        Int      @default(autoincrement())
+  from          DateTime
+  to            DateTime
+  totalCash     Decimal  @db.Decimal(10, 2)
+  totalCard     Decimal  @db.Decimal(10, 2)
+  totalTransfer Decimal  @db.Decimal(10, 2)
+  totalGeneral  Decimal  @db.Decimal(10, 2)
+  notes         String?
+  responsibleId String
+  createdAt     DateTime @default(now())
+
+  // Relaciones
+  responsible User   @relation(fields: [responsibleId], references: [id], onDelete: Restrict)
+  sales       Sale[]
+
+  @@index([responsibleId])
+  @@index([from])
+  @@index([to])
+  @@index([number])
+  @@index([createdAt])
+  @@map("cash_closings")
+}
+
+// ============================================
+// VARIANTES DE PRODUCTOS
+// ============================================
+
+model ProductVariant {
+  id          String   @id @default(cuid())
+  productId   String
+  name        String   // ej: "Talle M - Rojo"
+  sku         String   @unique
+  barcode     String?  @unique
+  attributes  Json     // { "talle": "M", "color": "Rojo" }
+  price       Decimal  @db.Decimal(10, 2)
+  cost        Decimal  @db.Decimal(10, 2)
+  stock       Int      @default(0)
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relaciones
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+// ============================================
+// MOVIMIENTOS DE STOCK
+// ============================================
+
+enum StockMovementType {
+  ENTRADA       // Compra, devolución de cliente
+  SALIDA        // Venta, robo, rotura
+  AJUSTE        // Ajuste de inventario
+  TRANSFERENCIA // Entre depósitos
+}
+
+model StockMovement {
+  id          String            @id @default(cuid())
+  productId   String
+  type        StockMovementType
+  quantity    Int               // Puede ser negativo para salidas
+  reason      String?
+  reference   String?           // ID de venta, compra, etc
+  userId      String
+  createdAt   DateTime          @default(now())
+
+  // Relaciones
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([productId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("stock_movements")
+}
+
+// ============================================
+// PAGOS MIXTOS (SPLIT PAYMENT)
+// ============================================
+
+model SalePayment {
+  id            String        @id @default(cuid())
+  saleId        String
+  paymentMethod PaymentMethod
+  amount        Decimal       @db.Decimal(10, 2)
+  reference     String?       // Número de transacción, cheque, etc
+  createdAt     DateTime      @default(now())
+
+  // Relaciones
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@map("sale_payments")
+}
+
+// ============================================
+// SISTEMA DE PRECIOS Y SUSCRIPCIONES ARS
+// ============================================
+
+enum PlanTier {
+  EMPRENDEDOR  // $20.000 ARS
+  PYME         // $50.000 ARS (Plan estrella)
+  FULL         // $120.000 ARS
+}
+
+enum PaymentPeriod {
+  MENSUAL
+  ANUAL
+  UNICO  // Para Setup Fee
+}
+
+enum PaymentStatus {
+  PENDIENTE
+  PAGADO
+  RECHAZADO
+  VENCIDO
+  CANCELADO
+}
+
+// ============================================
+// BLOQUEOS DE PLAN
+// ============================================
+
+model PlanBlockLog {
+  id         String   @id @default(cuid())
+  businessId String
+  type       String   // 'LIMIT' | 'EXPIRED'
+  reason     String
+  metadata   Json?    // Info adicional (límite alcanzado, etc.)
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("plan_block_logs")
+}
