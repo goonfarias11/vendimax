@@ -7,10 +7,11 @@ export async function GET(req: NextRequest) {
   try {
     const session = await auth();
 
-    if (!session?.user?.id) {
+    if (!session?.user?.businessId) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const businessId = session.user.businessId;
     const { searchParams } = new URL(req.url);
     const startDate = searchParams.get("startDate");
     const endDate = searchParams.get("endDate");
@@ -34,7 +35,6 @@ export async function GET(req: NextRequest) {
       by: ["productId"],
       where: {
         sale: {
-          userId: session.user.id,
           ...dateFilter,
         },
       },
@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
         const product = await prisma.product.findUnique({
           where: { id: item.productId },
           select: {
+            businessId: true,
             name: true,
             sku: true,
             stock: true,
@@ -72,11 +73,12 @@ export async function GET(req: NextRequest) {
           },
         });
 
-        if (!product) return null;
+        if (!product || product.businessId !== businessId) return null;
 
-        const revenue = item._sum.subtotal || 0;
+        const revenue = parseFloat(item._sum.subtotal?.toString() || '0');
         const quantity = item._sum.quantity || 0;
-        const profit = revenue - parseFloat(product.cost.toString()) * quantity;
+        const costValue = parseFloat(product.cost.toString());
+        const profit = revenue - (costValue * quantity);
 
         return {
           productId: item.productId,
@@ -97,14 +99,11 @@ export async function GET(req: NextRequest) {
 
     const validProducts = productsWithDetails.filter((p) => p !== null);
 
-    // Productos con bajo stock
-    const lowStockProducts = await prisma.product.findMany({
+    // Productos con bajo stock - filtrar después ya que Prisma no soporta comparar columnas
+    const allActiveProducts = await prisma.product.findMany({
       where: {
-        userId: session.user.id,
+        businessId,
         isActive: true,
-        stock: {
-          lte: prisma.raw(`"Product"."minStock"`),
-        },
       },
       select: {
         id: true,
@@ -118,16 +117,17 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      orderBy: {
-        stock: "asc",
-      },
-      take: 20,
     });
+    
+    const lowStockProducts = allActiveProducts
+      .filter(p => p.stock <= p.minStock)
+      .sort((a, b) => a.stock - b.stock)
+      .slice(0, 20);
 
     // Productos sin ventas
     const productsWithoutSales = await prisma.product.findMany({
       where: {
-        userId: session.user.id,
+        businessId,
         isActive: true,
         saleItems: {
           none: {},
@@ -155,13 +155,13 @@ export async function GET(req: NextRequest) {
     // Estadísticas generales
     const totalProducts = await prisma.product.count({
       where: {
-        userId: session.user.id,
+        businessId,
         isActive: true,
       },
     });
 
-    const totalRevenue = validProducts.reduce((sum, p) => sum + p.revenue, 0);
-    const totalProfit = validProducts.reduce((sum, p) => sum + p.profit, 0);
+    const totalRevenue = validProducts.reduce((sum, p) => sum + (p?.revenue || 0), 0);
+    const totalProfit = validProducts.reduce((sum, p) => sum + (p?.profit || 0), 0);
 
     return NextResponse.json({
       period: startDate && endDate ? { start: startDate, end: endDate } : null,

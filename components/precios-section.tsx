@@ -123,7 +123,7 @@ export function PreciosSection() {
                     asChild
                   >
                     <Link href="/registro">
-                      {plan.precio === "Personalizado" ? "Contactar Ventas" : "Empezar Ahora"}
+                      Empezar Ahora
                     </Link>
                   </Button>
                 </CardFooter>

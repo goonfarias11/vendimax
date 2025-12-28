@@ -21,6 +21,10 @@ interface Client {
   name: string
   email?: string
   phone?: string
+  creditLimit?: number
+  currentDebt?: number
+  hasCreditAccount?: boolean
+  status?: 'ACTIVE' | 'DELINQUENT' | 'INACTIVE' | 'BLOCKED'
 }
 
 interface CartItem extends Product {
@@ -37,7 +41,7 @@ export default function NuevaVentaPage() {
   const [searchClient, setSearchClient] = useState("")
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
-  const [paymentMethod, setPaymentMethod] = useState<"EFECTIVO" | "TARJETA_DEBITO" | "TARJETA_CREDITO" | "TRANSFERENCIA" | "QR" | "OTRO">("EFECTIVO")
+  const [paymentMethod, setPaymentMethod] = useState<"EFECTIVO" | "TARJETA_DEBITO" | "TARJETA_CREDITO" | "TRANSFERENCIA" | "QR" | "CUENTA_CORRIENTE" | "OTRO">("EFECTIVO")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [showProductResults, setShowProductResults] = useState(false)
@@ -55,6 +59,12 @@ export default function NuevaVentaPage() {
     fetch("/api/products")
       .then(res => res.json())
       .then(data => {
+        // Validar que data sea un array
+        if (!Array.isArray(data)) {
+          setProducts([]);
+          return;
+        }
+        
         // Asegurar que price y stock sean números
         const productsWithNumbers = data.map((p: any) => ({
           ...p,
@@ -63,15 +73,25 @@ export default function NuevaVentaPage() {
         }))
         setProducts(productsWithNumbers)
       })
-      .catch(err => console.error("Error cargando productos:", err))
+      .catch(() => setProducts([]))
   }, [])
 
   // Cargar clientes
   useEffect(() => {
-    fetch("/api/clients")
-      .then(res => res.json())
-      .then(data => setClients(data))
-      .catch(err => console.error("Error cargando clientes:", err))
+    fetch("/api/clients?limit=100")
+      .then(async res => {
+        const data = await res.json();
+        
+        if (!res.ok) {
+          setClients([]);
+          return;
+        }
+        
+        // La API ahora devuelve { clients: [], pagination: {} }
+        const clientsArray = Array.isArray(data) ? data : (data.clients || []);
+        setClients(clientsArray);
+      })
+      .catch(() => setClients([]))
   }, [])
 
   const filteredProducts = products.filter(p =>
@@ -79,11 +99,13 @@ export default function NuevaVentaPage() {
     p.barcode?.includes(searchProduct)
   )
 
-  const filteredClients = clients.filter(c =>
-    c.name.toLowerCase().includes(searchClient.toLowerCase()) ||
-    c.email?.toLowerCase().includes(searchClient.toLowerCase()) ||
-    c.phone?.includes(searchClient)
-  )
+  const filteredClients = searchClient
+    ? clients.filter(c =>
+        c.name.toLowerCase().includes(searchClient.toLowerCase()) ||
+        c.email?.toLowerCase().includes(searchClient.toLowerCase()) ||
+        c.phone?.includes(searchClient)
+      )
+    : clients
 
   const addToCart = (product: Product) => {
     const existing = cart.find(item => item.id === product.id)
@@ -187,6 +209,34 @@ export default function NuevaVentaPage() {
       return
     }
 
+    // Validar límite de crédito si se usa cuenta corriente
+    if (paymentMethod === "CUENTA_CORRIENTE") {
+      if (!selectedClient.hasCreditAccount) {
+        setError("Este cliente no tiene cuenta corriente habilitada")
+        return
+      }
+
+      const currentDebt = Number(selectedClient.currentDebt || 0)
+      const creditLimit = Number(selectedClient.creditLimit || 0)
+      const newDebt = currentDebt + total
+
+      if (creditLimit === 0) {
+        setError("Este cliente no tiene límite de crédito asignado")
+        return
+      }
+
+      if (newDebt > creditLimit) {
+        setError(`El cliente excedería su límite de crédito. Deuda actual: $${currentDebt.toLocaleString()}, Límite: $${creditLimit.toLocaleString()}, Nueva deuda: $${newDebt.toLocaleString()}`)
+        return
+      }
+
+      // Verificar si el cliente está bloqueado
+      if (selectedClient.status === 'BLOCKED') {
+        setError("Este cliente está bloqueado y no puede realizar compras a crédito")
+        return
+      }
+    }
+
     setLoading(true)
     setError("")
 
@@ -200,17 +250,6 @@ export default function NuevaVentaPage() {
           price: Number(item.price)
         }))
       }
-      
-      console.log("Payload a enviar:", payload)
-      console.log("Tipos:", {
-        clientId: typeof payload.clientId,
-        paymentMethod: typeof payload.paymentMethod,
-        items: payload.items.map(i => ({
-          productId: typeof i.productId,
-          quantity: typeof i.quantity,
-          price: typeof i.price
-        }))
-      })
 
       const response = await fetch("/api/sales", {
         method: "POST",
@@ -220,7 +259,6 @@ export default function NuevaVentaPage() {
 
       if (!response.ok) {
         const data = await response.json()
-        console.error("Error completo:", data)
         
         // Mostrar error detallado
         let errorMsg = data.error || "Error al crear la venta"
@@ -419,7 +457,7 @@ export default function NuevaVentaPage() {
                     placeholder="Buscar por nombre, email o teléfono..."
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   />
-                  {showClientResults && searchClient && (
+                  {showClientResults && (
                     <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {filteredClients.length > 0 ? (
                         filteredClients.map(client => (
@@ -440,7 +478,7 @@ export default function NuevaVentaPage() {
                         ))
                       ) : (
                         <div className="px-4 py-3 text-gray-500 text-center">
-                          No se encontraron clientes
+                          {clients.length === 0 ? 'No hay clientes registrados' : 'No se encontraron clientes con ese criterio'}
                         </div>
                       )}
                     </div>
@@ -552,8 +590,73 @@ export default function NuevaVentaPage() {
                 <option value="TARJETA_CREDITO">Tarjeta Crédito</option>
                 <option value="TRANSFERENCIA">Transferencia</option>
                 <option value="QR">QR</option>
+                <option value="CUENTA_CORRIENTE">Cuenta Corriente</option>
                 <option value="OTRO">Otro</option>
               </select>
+
+              {/* Alerta de Crédito Disponible */}
+              {paymentMethod === "CUENTA_CORRIENTE" && selectedClient && (
+                <div className={`mt-3 p-3 rounded-lg ${
+                  !selectedClient.hasCreditAccount
+                    ? 'bg-red-50 border border-red-200'
+                    : Number(selectedClient.creditLimit || 0) === 0
+                    ? 'bg-red-50 border border-red-200'
+                    : (Number(selectedClient.currentDebt || 0) + total) > Number(selectedClient.creditLimit || 0)
+                    ? 'bg-orange-50 border border-orange-200'
+                    : 'bg-blue-50 border border-blue-200'
+                }`}>
+                  <div className="text-sm">
+                    {!selectedClient.hasCreditAccount ? (
+                      <>
+                        <p className="font-medium text-red-700">⚠️ Cuenta Corriente Deshabilitada</p>
+                        <p className="text-red-600 text-xs mt-1">Este cliente no tiene cuenta corriente habilitada. Habilítala desde la sección Clientes.</p>
+                      </>
+                    ) : Number(selectedClient.creditLimit || 0) === 0 ? (
+                      <>
+                        <p className="font-medium text-red-700">⚠️ Sin Límite de Crédito</p>
+                        <p className="text-red-600 text-xs mt-1">Este cliente no tiene límite de crédito asignado.</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-gray-700">Deuda actual:</span>
+                          <span className="font-medium">${Number(selectedClient.currentDebt || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-gray-700">Límite de crédito:</span>
+                          <span className="font-medium">${Number(selectedClient.creditLimit || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-gray-700">Nueva deuda:</span>
+                          <span className="font-bold text-blue-600">
+                            ${(Number(selectedClient.currentDebt || 0) + total).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${
+                              ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100 >= 100
+                                ? 'bg-red-500'
+                                : ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100 >= 80
+                                ? 'bg-orange-500'
+                                : 'bg-green-500'
+                            }`}
+                            style={{
+                              width: `${Math.min(
+                                ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100,
+                                100
+                              )}%`
+                            }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1) * 100).toFixed(1)}% del límite
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">

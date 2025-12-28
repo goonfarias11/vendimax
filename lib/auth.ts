@@ -54,7 +54,8 @@ export const authConfig = {
             id: user.id,
             name: user.name,
             email: user.email,
-            role: user.role
+            role: user.role,
+            businessId: user.businessId
           }
         } catch (error) {
           logger.error("Error en authorize:", error)
@@ -68,6 +69,7 @@ export const authConfig = {
       if (user) {
         token.id = user.id
         token.role = user.role
+        token.businessId = user.businessId
       }
       return token
     },
@@ -75,6 +77,7 @@ export const authConfig = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as string
+        session.user.businessId = token.businessId as string | null
       }
       return session
     }
@@ -88,4 +91,5 @@ export const authConfig = {
   secret: process.env.NEXTAUTH_SECRET,
 } satisfies NextAuthConfig
 
+export const authOptions = authConfig
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)

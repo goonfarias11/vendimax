@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { z } from "zod"
+import { requireBusinessId, verifyProductOwnership } from "@/lib/security/multi-tenant"
+import { requirePermission } from "@/lib/auth-middleware"
 
 export const runtime = 'nodejs'
 
@@ -21,10 +23,31 @@ const productSchema = z.object({
   taxRate: z.number().min(0).max(100).default(21),
 })
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Verificar permiso para ver productos
+    const permissionCheck = await requirePermission(request, 'products:view')
+    if (!permissionCheck.authorized) {
+      return permissionCheck.response
+    }
+
+    const session = await auth()
+    if (!session?.user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
+    }
+
+    if (!session.user.businessId) {
+      return NextResponse.json({ 
+        error: "Usuario sin negocio asignado. Por favor, contacta al administrador.",
+        details: "businessId is missing from session"
+      }, { status: 403 })
+    }
+
+    const businessId = session.user.businessId
+
     const products = await prisma.product.findMany({
       where: {
+        businessId,
         isActive: true
       },
       include: {
@@ -62,23 +85,37 @@ export async function GET() {
     return NextResponse.json(formatted)
   } catch (error) {
     console.error("Error fetching products:", error)
-    return NextResponse.json({ error: "Error al cargar productos" }, { status: 500 })
+    return NextResponse.json({ 
+      error: "Error al cargar productos",
+      details: error instanceof Error ? error.message : String(error)
+    }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Verificar permiso para crear productos
+    const permissionCheck = await requirePermission(request, 'products:create')
+    if (!permissionCheck.authorized) {
+      return permissionCheck.response
+    }
+
     const session = await auth()
-    if (!session?.user) {
+    if (!session?.user?.businessId) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
+
+    const businessId = session.user.businessId
 
     const body = await request.json()
     const validatedData = productSchema.parse(body)
 
-    // Verificar si el SKU ya existe
-    const existingSku = await prisma.product.findUnique({
-      where: { sku: validatedData.sku }
+    // Verificar si el SKU ya existe en este negocio
+    const existingSku = await prisma.product.findFirst({
+      where: { 
+        businessId,
+        sku: validatedData.sku 
+      }
     })
 
     if (existingSku) {
@@ -88,10 +125,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verificar si el barcode ya existe (si se proporciona)
+    // Verificar si el barcode ya existe en este negocio (si se proporciona)
     if (validatedData.barcode) {
-      const existingBarcode = await prisma.product.findUnique({
-        where: { barcode: validatedData.barcode }
+      const existingBarcode = await prisma.product.findFirst({
+        where: { 
+          businessId,
+          barcode: validatedData.barcode 
+        }
       })
 
       if (existingBarcode) {
@@ -103,7 +143,10 @@ export async function POST(request: NextRequest) {
     }
 
     const product = await prisma.product.create({
-      data: validatedData,
+      data: {
+        ...validatedData,
+        businessId
+      },
       include: {
         category: true
       }
@@ -127,9 +170,11 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user) {
+    if (!session?.user?.businessId) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
+
+    const businessId = session.user.businessId
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
@@ -141,12 +186,16 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    // Verificar que el producto pertenezca al negocio
+    await verifyProductOwnership(id, businessId)
+
     const body = await request.json()
     const validatedData = productSchema.parse(body)
 
-    // Verificar si el SKU ya está en uso por otro producto
+    // Verificar si el SKU ya está en uso por otro producto del mismo negocio
     const existingSku = await prisma.product.findFirst({
       where: {
+        businessId,
         sku: validatedData.sku,
         id: { not: id }
       }
@@ -185,9 +234,11 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user) {
+    if (!session?.user?.businessId) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
+
+    const businessId = session.user.businessId
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
@@ -198,6 +249,9 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Verificar que el producto pertenezca al negocio
+    await verifyProductOwnership(id, businessId)
 
     // Soft delete
     await prisma.product.update({

@@ -59,14 +59,11 @@ export default function VentasPage() {
   const fetchSales = async () => {
     try {
       setLoading(true);
-      console.log("Cargando ventas...");
       const response = await fetch("/api/sales");
-      console.log("Response status:", response.status);
       
       if (!response.ok) throw new Error("Error al cargar ventas");
       
       const data = await response.json();
-      console.log("Ventas recibidas:", data);
       
       // Formatear datos para la tabla
       const formattedSales: Sale[] = data.map((sale: any) => ({
@@ -79,11 +76,9 @@ export default function VentasPage() {
         estado: sale.cashClosingId ? "Cerrado" : "Abierto"
       }));
       
-      console.log("Ventas formateadas:", formattedSales);
       setSales(formattedSales);
     } catch (error) {
-      console.error("Error:", error);
-      alert("Error al cargar ventas: " + error);
+      alert("Error al cargar ventas");
     } finally {
       setLoading(false);
     }

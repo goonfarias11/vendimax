@@ -14,19 +14,32 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  UserCog,
 } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
+import { canAccessRoute, Role } from "@/lib/permissions";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: ShoppingCart, label: "Ventas", href: "/dashboard/ventas" },
+  { icon: ShoppingCart, label: "Ventas", href: "/dashboard/ventas/nueva" },
+  { icon: ShoppingCart, label: "Historial Ventas", href: "/dashboard/ventas/historial" },
   { icon: Package, label: "Productos", href: "/dashboard/productos" },
   { icon: Users, label: "Clientes", href: "/dashboard/clientes" },
-  { icon: Wallet, label: "Caja", href: "/dashboard/caja" },
+  { icon: Wallet, label: "Mi Caja", href: "/dashboard/mi-caja" },
   { icon: BarChart3, label: "Reportes", href: "/dashboard/reportes" },
-  { icon: Settings, label: "Ajustes", href: "/dashboard/ajustes", adminOnly: true },
+  { icon: UserCog, label: "Usuarios", href: "/dashboard/usuarios" },
+  { icon: Settings, label: "Ajustes", href: "/dashboard/ajustes" },
 ];
+
+// Mapa de roles a texto en español
+const roleLabels: Record<Role, string> = {
+  OWNER: "Propietario",
+  ADMIN: "Administrador",
+  GERENTE: "Gerente",
+  SUPERVISOR: "Supervisor",
+  VENDEDOR: "Vendedor"
+};
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -38,7 +51,12 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { data: session } = useSession();
 
-  const userRole = (session?.user as any)?.role;
+  const userRole = (session?.user as any)?.role as Role;
+
+  // Filtrar menú según permisos del rol
+  const accessibleMenuItems = menuItems.filter(item => 
+    canAccessRoute(userRole, item.href)
+  );
 
   return (
     <>
@@ -95,11 +113,9 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
 
         {/* Menu */}
         <nav className="space-y-1 p-2">
-          {menuItems
-            .filter(item => !item.adminOnly || userRole === "ADMIN")
-            .map((item) => {
+          {accessibleMenuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
 
               return (
                 <Link
@@ -134,7 +150,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
                   {session?.user?.name || "Usuario"}
                 </p>
                 <p className="truncate text-xs text-gray-500">
-                  {userRole === "ADMIN" ? "Administrador" : "Vendedor"}
+                  {userRole ? roleLabels[userRole] : "Usuario"}
                 </p>
               </div>
             </div>

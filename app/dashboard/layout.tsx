@@ -83,19 +83,23 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <DashboardSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="min-h-screen bg-gray-50 print:bg-white">
+      <div className="print:hidden">
+        <DashboardSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      </div>
       
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-black/50 md:hidden print:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
       
-      <div className="md:pl-64">
-        <DashboardTopbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="p-6">{children}</main>
+      <div className="md:pl-64 print:pl-0">
+        <div className="print:hidden">
+          <DashboardTopbar onMenuClick={() => setSidebarOpen(true)} />
+        </div>
+        <main className="p-6 print:p-8">{children}</main>
       </div>
     </div>
   );

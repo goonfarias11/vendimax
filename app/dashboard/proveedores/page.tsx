@@ -5,10 +5,15 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/dashboard/data-table";
 import { Modal } from "@/components/dashboard/modal";
 import { Plus } from "lucide-react";
-import { mockProveedores } from "@/lib/mock-data";
 
 export default function ProveedoresPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Datos de ejemplo (mover a API en el futuro)
+  const mockProveedores = [
+    { id: 1, nombre: "Proveedor 1", contacto: "Juan Pérez", email: "juan@proveedor1.com", telefono: "123-456-789", productos: 15, ultimoPedido: "2024-01-15" },
+    { id: 2, nombre: "Proveedor 2", contacto: "María García", email: "maria@proveedor2.com", telefono: "987-654-321", productos: 8, ultimoPedido: "2024-01-10" },
+  ];
 
   const columns = [
     { key: "id", header: "ID" },

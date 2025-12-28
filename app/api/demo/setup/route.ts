@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
     await prisma.product.createMany({
       data: [
         {
+          businessId: demoBusiness.id,
           name: 'Mouse Inalámbrico',
           sku: 'MOUSE-001',
           barcode: '7798123456789',
@@ -146,6 +147,7 @@ export async function POST(request: NextRequest) {
           taxRate: 21,
         },
         {
+          businessId: demoBusiness.id,
           name: 'Teclado Mecánico',
           sku: 'TECLADO-001',
           barcode: '7798123456790',
@@ -158,6 +160,7 @@ export async function POST(request: NextRequest) {
           taxRate: 21,
         },
         {
+          businessId: demoBusiness.id,
           name: 'Remera Básica',
           sku: 'REMERA-001',
           barcode: '7798123456791',
@@ -170,6 +173,7 @@ export async function POST(request: NextRequest) {
           taxRate: 21,
         },
         {
+          businessId: demoBusiness.id,
           name: 'Jean Clásico',
           sku: 'JEAN-001',
           barcode: '7798123456792',
@@ -182,6 +186,7 @@ export async function POST(request: NextRequest) {
           taxRate: 21,
         },
         {
+          businessId: demoBusiness.id,
           name: 'Café Molido 500g',
           sku: 'CAFE-001',
           barcode: '7798123456793',
@@ -194,6 +199,7 @@ export async function POST(request: NextRequest) {
           taxRate: 10.5,
         },
         {
+          businessId: demoBusiness.id,
           name: 'Leche Entera 1L',
           sku: 'LECHE-001',
           barcode: '7798123456794',
@@ -233,8 +239,8 @@ export async function POST(request: NextRequest) {
     });
 
     // Crear algunas ventas de ejemplo
-    const mouse = await prisma.product.findFirst({ where: { sku: 'MOUSE-001' } });
-    const teclado = await prisma.product.findFirst({ where: { sku: 'TECLADO-001' } });
+    const mouse = await prisma.product.findFirst({ where: { sku: 'MOUSE-001', businessId: demoBusiness.id } });
+    const teclado = await prisma.product.findFirst({ where: { sku: 'TECLADO-001', businessId: demoBusiness.id } });
     const cliente1 = await prisma.client.findFirst({ where: { name: 'Juan Pérez' } });
     const cliente2 = await prisma.client.findFirst({ where: { name: 'María González' } });
 

@@ -32,6 +32,7 @@ export function DashboardContent() {
     productosPopulares: [],
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboardStats();
@@ -47,12 +48,26 @@ export function DashboardContent() {
         fetch("/api/products"),
       ]);
 
-      if (!salesRes.ok || !productsRes.ok) {
-        throw new Error("Error al cargar datos");
+      if (!salesRes.ok) {
+        const errorData = await salesRes.json().catch(() => ({}));
+        throw new Error(errorData.error || "Error al cargar ventas");
       }
 
-      const sales = await salesRes.json();
+      if (!productsRes.ok) {
+        const errorData = await productsRes.json().catch(() => ({}));
+        throw new Error(errorData.error || "Error al cargar productos");
+      }
+
+      const salesData = await salesRes.json();
       const products = await productsRes.json();
+
+      // Extraer array de ventas (soporta formato antiguo y nuevo)
+      const sales = Array.isArray(salesData) ? salesData : salesData.sales || [];
+      
+      // Validar que sean arrays
+      if (!Array.isArray(sales) || !Array.isArray(products)) {
+        throw new Error("Error: Respuesta inválida de API");
+      }
 
       // Calcular fecha de hoy y del mes
       const today = new Date();
@@ -133,7 +148,7 @@ export function DashboardContent() {
         productosPopulares,
       });
     } catch (error) {
-      console.error("Error al cargar estadísticas:", error);
+      setError("Error al cargar estadísticas");
     } finally {
       setLoading(false);
     }
@@ -236,7 +251,7 @@ export function DashboardContent() {
               </p>
             </div>
             <Button variant="outline" asChild>
-              <Link href="/dashboard/caja">
+              <Link href="/dashboard/mi-caja">
                 <Eye className="mr-2 h-4 w-4" />
                 Ver Detalles
               </Link>
@@ -320,12 +335,12 @@ export function DashboardContent() {
         </Link>
 
         <Link
-          href="/dashboard/caja"
+          href="/dashboard/mi-caja"
           className="bg-green-600 hover:bg-green-700 text-white rounded-xl p-6 transition-colors"
         >
           <DollarSign className="h-8 w-8 mb-3" />
-          <h3 className="font-semibold mb-1">Caja</h3>
-          <p className="text-sm text-white/80">Movimientos y cierre de caja</p>
+          <h3 className="font-semibold mb-1">Mi Caja</h3>
+          <p className="text-sm text-white/80">Gestionar mi turno de caja</p>
         </Link>
       </div>
     </div>

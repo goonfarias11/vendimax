@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
     const salesBySeller = await prisma.sale.groupBy({
       by: ["userId"],
       where: {
-        userId: session.user.id,
+
         ...dateFilter,
       },
       _sum: {

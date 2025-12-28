@@ -1,425 +1,335 @@
-// lib/planAccessControl.ts
-// Control de acceso basado en el plan de suscripción del negocio
+/**
+ * Sistema Centralizado de Control de Límites por Plan
+ * 
+ * Este archivo es la ÚNICA fuente de verdad para:
+ * - Límites de cada plan
+ * - Validación de acceso a características
+ * - Verificación de límites
+ */
 
-import { prisma } from './prisma'
-import { getCachedPlanFeatures, setCachedPlanFeatures, invalidatePlanFeaturesCache } from './cachePlanFeatures'
+import { prisma } from '@/lib/prisma'
 
-export interface PlanFeatures {
-  // Límites
-  maxUsers: number | null  // null = ilimitado
+export interface PlanLimits {
+  maxUsers: number | null
   maxProducts: number | null
   maxSales: number | null
-  
-  // Características habilitadas
-  hasInvoicing: boolean           // Facturación electrónica AFIP
-  hasMultiBranch: boolean         // Múltiples sucursales
-  hasAdvancedReports: boolean     // Reportes avanzados
-  hasAPI: boolean                 // Acceso a API
-  hasExport: boolean              // Exportación avanzada
-  hasBackups: boolean             // Backups automáticos
-  
-  // Addons
-  hasMercadoLibreIntegration: boolean
-  hasOnlineStore: boolean
-  hasAdvancedAnalytics: boolean
+  maxLocations: number | null
+  hasAdvancedReports: boolean
+  hasIntegrations: boolean
+  hasCurrentAccounts: boolean
+  hasAPI: boolean
+  supportLevel: string
+}
+
+export interface UsageStats {
+  users: number
+  products: number
+  salesThisMonth: number
+  locations: number
+}
+
+export interface LimitCheckResult {
+  allowed: boolean
+  current: number
+  limit: number | null
+  percentage: number
+  message: string
 }
 
 /**
- * Obtener características del plan de un negocio
- * Con cache en memoria para reducir consultas a BD
+ * Obtener los límites del plan activo de un negocio
  */
-export async function getBusinessPlanFeatures(businessId: string): Promise<PlanFeatures | null> {
-  // Intentar obtener desde cache
-  const cached = getCachedPlanFeatures(businessId)
-  if (cached) {
-    return cached
-  }
-
-  // Si no está en cache, consultar BD
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      subscriptionARS: {
-        include: {
-          plan: true,
-          subscriptionAddons: {
-            include: {
-              addon: true
-            }
-          }
-        }
-      }
-    }
+export async function getPlanLimits(businessId: string): Promise<PlanLimits | null> {
+  const subscription = await prisma.subscriptionARS.findUnique({
+    where: { businessId },
+    include: { plan: true }
   })
 
-  if (!business || !business.subscriptionARS) {
-    // Si no tiene suscripción ARS, retornar plan FREE por defecto
+  if (!subscription || !subscription.plan) {
+    // Plan gratuito/demo por defecto (límites del plan Básico)
     return {
-      maxUsers: 1,
-      maxProducts: 100,
-      maxSales: 50,
-      hasInvoicing: false,
-      hasMultiBranch: false,
+      maxUsers: 3,
+      maxProducts: 500,
+      maxSales: 1000,
+      maxLocations: 1,
       hasAdvancedReports: false,
+      hasIntegrations: false,
+      hasCurrentAccounts: false,
       hasAPI: false,
-      hasExport: false,
-      hasBackups: false,
-      hasMercadoLibreIntegration: false,
-      hasOnlineStore: false,
-      hasAdvancedAnalytics: false
+      supportLevel: 'email'
     }
   }
 
-  const sub = business.subscriptionARS
-  const plan = sub.plan
-
-  // Verificar addons activos
-  const activeAddons = sub.subscriptionAddons.filter(sa => sa.isActive)
-  const addonSlugs = activeAddons.map(sa => sa.addon.slug)
-
-  // Determinar características según el plan
-  let features: PlanFeatures = {
-    maxUsers: plan.maxUsers,
-    maxProducts: plan.maxProducts,
-    maxSales: plan.maxSales,
-    hasInvoicing: false,
-    hasMultiBranch: false,
-    hasAdvancedReports: false,
-    hasAPI: false,
-    hasExport: false,
-    hasBackups: false,
-    hasMercadoLibreIntegration: addonSlugs.includes('mercadolibre'),
-    hasOnlineStore: addonSlugs.includes('tienda-online'),
-    hasAdvancedAnalytics: addonSlugs.includes('analisis-avanzado')
-  }
-
-  // Características según el plan
-  switch (plan.slug) {
-    case 'emprendedor':
-      // Plan básico, solo lo esencial
-      features.hasExport = false
-      break
-      
-    case 'pyme':
-      // Plan intermedio
-      features.hasInvoicing = true
-      features.hasMultiBranch = true
-      features.hasAdvancedReports = true
-      features.hasExport = true
-      break
-      
-    case 'full':
-      // Plan completo
-      features.hasInvoicing = true
-      features.hasMultiBranch = true
-      features.hasAdvancedReports = true
-      features.hasAPI = true
-      features.hasExport = true
-      features.hasBackups = true
-      break
-  }
-
-  // Guardar en cache
-  setCachedPlanFeatures(businessId, features)
-
-  return features
-}
-
-/**
- * Verificar si un negocio tiene acceso a una característica
- */
-export async function checkFeatureAccess(
-  businessId: string,
-  feature: keyof PlanFeatures
-): Promise<boolean> {
-  const features = await getBusinessPlanFeatures(businessId)
-  if (!features) return false
-  
-  const value = features[feature]
-  return typeof value === 'boolean' ? value : true
-}
-
-/**
- * Verificar límite de usuarios
- */
-export async function checkUserLimit(businessId: string): Promise<{ 
-  allowed: boolean
-  current: number
-  limit: number | null
-}> {
-  const features = await getBusinessPlanFeatures(businessId)
-  if (!features) {
-    return { allowed: false, current: 0, limit: 0 }
-  }
-  
-  const currentUsers = await prisma.user.count({
-    where: { businessId }
-  })
-
   return {
-    allowed: features.maxUsers === null || currentUsers < features.maxUsers,
-    current: currentUsers,
-    limit: features.maxUsers
+    maxUsers: subscription.plan.maxUsers,
+    maxProducts: subscription.plan.maxProducts,
+    maxSales: subscription.plan.maxSales,
+    maxLocations: subscription.plan.maxLocations,
+    hasAdvancedReports: subscription.plan.hasAdvancedReports,
+    hasIntegrations: subscription.plan.hasIntegrations,
+    hasCurrentAccounts: subscription.plan.hasCurrentAccounts,
+    hasAPI: subscription.plan.hasAPI,
+    supportLevel: subscription.plan.supportLevel
   }
 }
 
 /**
- * Verificar límite de productos
+ * Obtener estadísticas de uso actual del negocio
  */
-export async function checkProductLimit(businessId: string): Promise<{
-  allowed: boolean
-  current: number
-  limit: number | null
-}> {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: { users: true }
-  })
-
-  if (!business || business.users.length === 0) {
-    return { allowed: false, current: 0, limit: 0 }
-  }
-
-  const features = await getBusinessPlanFeatures(businessId)
-  if (!features) {
-    return { allowed: false, current: 0, limit: 0 }
-  }
-  
-  const currentProducts = await prisma.product.count()
-
-  return {
-    allowed: features.maxProducts === null || currentProducts < features.maxProducts,
-    current: currentProducts,
-    limit: features.maxProducts
-  }
-}
-
-/**
- * Verificar límite de ventas mensuales
- */
-export async function checkSalesLimit(businessId: string): Promise<{
-  allowed: boolean
-  current: number
-  limit: number | null
-}> {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: { users: true }
-  })
-
-  if (!business || business.users.length === 0) {
-    return { allowed: false, current: 0, limit: 0 }
-  }
-
-  const features = await getBusinessPlanFeatures(businessId)
-  if (!features) {
-    return { allowed: false, current: 0, limit: 0 }
-  }
-  
-  // Contar ventas del mes actual
+export async function getUsageStats(businessId: string): Promise<UsageStats> {
   const now = new Date()
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59)
 
-  const currentSales = await prisma.sale.count({
-    where: {
-      userId: {
-        in: business.users.map(u => u.id)
-      },
-      createdAt: {
-        gte: startOfMonth,
-        lte: endOfMonth
+  const [users, products, salesThisMonth] = await Promise.all([
+    prisma.user.count({
+      where: { businessId, isActive: true }
+    }),
+    prisma.product.count({
+      where: { businessId, isActive: true }
+    }),
+    prisma.sale.count({
+      where: {
+        businessId,
+        status: 'COMPLETADO',
+        createdAt: {
+          gte: startOfMonth,
+          lte: endOfMonth
+        }
       }
-    }
-  })
+    })
+  ])
+
+  // TODO: Cuando se agregue soporte multi-ubicación, contar ubicaciones reales
+  const locations = 1
 
   return {
-    allowed: features.maxSales === null || currentSales < features.maxSales,
-    current: currentSales,
-    limit: features.maxSales
+    users,
+    products,
+    salesThisMonth,
+    locations
   }
 }
 
 /**
- * Middleware para verificar acceso a una característica
+ * Verificar si se puede crear un nuevo usuario
  */
-export function requireFeature(feature: keyof PlanFeatures) {
-  return async (businessId: string) => {
-    const hasAccess = await checkFeatureAccess(businessId, feature)
-    
-    if (!hasAccess) {
-      throw new Error(
-        `Tu plan actual no incluye esta funcionalidad. Actualizá tu suscripción para acceder.`
-      )
-    }
-    
-    return true
-  }
-}
+export async function canCreateUser(businessId: string): Promise<LimitCheckResult> {
+  const [limits, usage] = await Promise.all([
+    getPlanLimits(businessId),
+    getUsageStats(businessId)
+  ])
 
-/**
- * Obtener información de upgrade recomendado
- */
-/**
- * Obtener recomendación de upgrade automática
- * Analiza el uso actual y sugiere el mejor plan
- */
-export async function getUpgradeRecommendation(businessId: string): Promise<{
-  shouldUpgrade: boolean
-  reasons: string[]
-  recommendedPlan: string | null
-  currentPlan: string | null
-  benefits: string[]
-  urgency: 'low' | 'medium' | 'high'
-}> {
-  const reasons: string[] = []
-  const benefits: string[] = []
-  let recommendedPlan: string | null = null
-  let urgency: 'low' | 'medium' | 'high' = 'low'
-
-  // Obtener plan actual
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    include: {
-      subscriptionARS: {
-        include: { plan: true }
-      }
-    }
-  })
-
-  const currentPlan = business?.subscriptionARS?.plan.slug || null
-
-  // Verificar límites
-  const userCheck = await checkUserLimit(businessId)
-  const productCheck = await checkProductLimit(businessId)
-  const salesCheck = await checkSalesLimit(businessId)
-
-  // Detectar límites excedidos (urgencia alta)
-  if (!userCheck.allowed) {
-    reasons.push(`Superaste el límite de usuarios (${userCheck.current}/${userCheck.limit})`)
-    urgency = 'high'
-    
-    if (currentPlan === 'emprendedor') {
-      recommendedPlan = 'pyme'
-      benefits.push('Hasta 5 usuarios')
-    } else if (currentPlan === 'pyme') {
-      recommendedPlan = 'full'
-      benefits.push('Usuarios ilimitados')
+  if (!limits) {
+    return {
+      allowed: false,
+      current: usage.users,
+      limit: null,
+      percentage: 0,
+      message: 'No se pudo verificar el plan de suscripción'
     }
   }
 
-  if (!productCheck.allowed) {
-    reasons.push(`Superaste el límite de productos (${productCheck.current}/${productCheck.limit})`)
-    urgency = 'high'
-    
-    if (currentPlan === 'emprendedor') {
-      recommendedPlan = 'pyme'
-      benefits.push('Hasta 2000 productos')
-    } else if (currentPlan === 'pyme') {
-      recommendedPlan = 'full'
-      benefits.push('Productos ilimitados')
+  // Plan Full: sin límite
+  if (limits.maxUsers === null) {
+    return {
+      allowed: true,
+      current: usage.users,
+      limit: null,
+      percentage: 0,
+      message: 'Usuarios ilimitados'
     }
   }
 
-  if (!salesCheck.allowed) {
-    reasons.push(`Superaste el límite de ventas del mes (${salesCheck.current}/${salesCheck.limit})`)
-    urgency = 'high'
-    
-    if (currentPlan === 'emprendedor') {
-      recommendedPlan = 'pyme'
-      benefits.push('Hasta 1000 ventas/mes')
-    } else if (currentPlan === 'pyme') {
-      recommendedPlan = 'full'
-      benefits.push('Ventas ilimitadas')
-    }
-  }
-
-  // Detectar cercanía a límites - 80% (urgencia media)
-  if (urgency !== 'high') {
-    if (userCheck.limit && userCheck.current >= userCheck.limit * 0.8) {
-      reasons.push(`Estás usando ${Math.round((userCheck.current / userCheck.limit) * 100)}% de tu límite de usuarios`)
-      urgency = 'medium'
-      
-      if (currentPlan === 'emprendedor') {
-        recommendedPlan = 'pyme'
-        benefits.push('Más usuarios disponibles (hasta 5)')
-      }
-    }
-
-    if (productCheck.limit && productCheck.current >= productCheck.limit * 0.8) {
-      reasons.push(`Estás usando ${Math.round((productCheck.current / productCheck.limit) * 100)}% de tu límite de productos`)
-      urgency = urgency === 'medium' ? 'medium' : 'medium'
-      
-      if (currentPlan === 'emprendedor') {
-        recommendedPlan = 'pyme'
-        benefits.push('Más productos disponibles (hasta 2000)')
-      }
-    }
-
-    if (salesCheck.limit && salesCheck.current >= salesCheck.limit * 0.8) {
-      reasons.push(`Estás usando ${Math.round((salesCheck.current / salesCheck.limit) * 100)}% de tu límite de ventas mensuales`)
-      urgency = urgency === 'medium' ? 'medium' : 'medium'
-      
-      if (currentPlan === 'emprendedor') {
-        recommendedPlan = 'pyme'
-        benefits.push('Más ventas mensuales (hasta 1000)')
-      }
-    }
-  }
-
-  // Verificar uso de funcionalidades avanzadas
-  const features = await getBusinessPlanFeatures(businessId)
-  
-  if (features && currentPlan === 'emprendedor') {
-    if (!features.hasInvoicing) {
-      reasons.push('No tenés acceso a facturación electrónica AFIP')
-      if (!recommendedPlan) {
-        recommendedPlan = 'pyme'
-        benefits.push('Facturación electrónica AFIP')
-        urgency = 'low'
-      }
-    }
-    
-    if (!features.hasMultiBranch && !recommendedPlan) {
-      benefits.push('Múltiples sucursales')
-    }
-  }
-
-  if (currentPlan === 'pyme' && features) {
-    if (!features.hasAPI) benefits.push('Acceso a API REST')
-    if (!features.hasBackups) benefits.push('Backups automáticos')
-
-    if (benefits.length > 0 && !recommendedPlan) {
-      recommendedPlan = 'full'
-      urgency = 'low'
-    }
-  }
-
-  // Beneficios generales del plan recomendado
-  if (recommendedPlan === 'pyme' && currentPlan === 'emprendedor') {
-    benefits.push('Reportes avanzados', 'Exportación de datos')
-  }
-
-  if (recommendedPlan === 'full') {
-    benefits.push('Soporte prioritario', 'Todas las funcionalidades')
-  }
+  const allowed = usage.users < limits.maxUsers
+  const percentage = (usage.users / limits.maxUsers) * 100
 
   return {
-    shouldUpgrade: reasons.length > 0,
-    reasons,
-    recommendedPlan,
-    currentPlan,
-    benefits,
-    urgency
+    allowed,
+    current: usage.users,
+    limit: limits.maxUsers,
+    percentage,
+    message: allowed 
+      ? `${usage.users} de ${limits.maxUsers} usuarios usados`
+      : `Límite alcanzado: ${usage.users}/${limits.maxUsers} usuarios. Actualiza tu plan para agregar más.`
   }
 }
 
-export default {
-  getBusinessPlanFeatures,
-  checkFeatureAccess,
-  checkUserLimit,
-  checkProductLimit,
-  checkSalesLimit,
-  requireFeature,
-  getUpgradeRecommendation
+/**
+ * Verificar si se puede crear un nuevo producto
+ */
+export async function canCreateProduct(businessId: string): Promise<LimitCheckResult> {
+  const [limits, usage] = await Promise.all([
+    getPlanLimits(businessId),
+    getUsageStats(businessId)
+  ])
+
+  if (!limits) {
+    return {
+      allowed: false,
+      current: usage.products,
+      limit: null,
+      percentage: 0,
+      message: 'No se pudo verificar el plan de suscripción'
+    }
+  }
+
+  if (limits.maxProducts === null) {
+    return {
+      allowed: true,
+      current: usage.products,
+      limit: null,
+      percentage: 0,
+      message: 'Productos ilimitados'
+    }
+  }
+
+  const allowed = usage.products < limits.maxProducts
+  const percentage = (usage.products / limits.maxProducts) * 100
+
+  return {
+    allowed,
+    current: usage.products,
+    limit: limits.maxProducts,
+    percentage,
+    message: allowed
+      ? `${usage.products} de ${limits.maxProducts} productos usados`
+      : `Límite alcanzado: ${usage.products}/${limits.maxProducts} productos. Actualiza tu plan para agregar más.`
+  }
+}
+
+/**
+ * Verificar si se puede registrar una nueva venta
+ */
+export async function canCreateSale(businessId: string): Promise<LimitCheckResult> {
+  const [limits, usage] = await Promise.all([
+    getPlanLimits(businessId),
+    getUsageStats(businessId)
+  ])
+
+  if (!limits) {
+    return {
+      allowed: false,
+      current: usage.salesThisMonth,
+      limit: null,
+      percentage: 0,
+      message: 'No se pudo verificar el plan de suscripción'
+    }
+  }
+
+  if (limits.maxSales === null) {
+    return {
+      allowed: true,
+      current: usage.salesThisMonth,
+      limit: null,
+      percentage: 0,
+      message: 'Ventas ilimitadas'
+    }
+  }
+
+  const allowed = usage.salesThisMonth < limits.maxSales
+  const percentage = (usage.salesThisMonth / limits.maxSales) * 100
+
+  return {
+    allowed,
+    current: usage.salesThisMonth,
+    limit: limits.maxSales,
+    percentage,
+    message: allowed
+      ? `${usage.salesThisMonth} de ${limits.maxSales} ventas este mes`
+      : `Límite mensual alcanzado: ${usage.salesThisMonth}/${limits.maxSales} ventas. Actualiza tu plan o espera al próximo mes.`
+  }
+}
+
+/**
+ * Verificar si tiene acceso a reportes avanzados
+ */
+export async function hasAdvancedReports(businessId: string): Promise<boolean> {
+  const limits = await getPlanLimits(businessId)
+  return limits?.hasAdvancedReports ?? false
+}
+
+/**
+ * Verificar si tiene acceso a integraciones
+ */
+export async function hasIntegrations(businessId: string): Promise<boolean> {
+  const limits = await getPlanLimits(businessId)
+  return limits?.hasIntegrations ?? false
+}
+
+/**
+ * Verificar si tiene acceso a cuenta corriente de clientes
+ */
+export async function hasCurrentAccounts(businessId: string): Promise<boolean> {
+  const limits = await getPlanLimits(businessId)
+  return limits?.hasCurrentAccounts ?? false
+}
+
+/**
+ * Verificar si tiene acceso a la API
+ */
+export async function hasAPIAccess(businessId: string): Promise<boolean> {
+  const limits = await getPlanLimits(businessId)
+  return limits?.hasAPI ?? false
+}
+
+/**
+ * Obtener información completa del plan y uso
+ */
+export async function getPlanSummary(businessId: string) {
+  const [limits, usage, subscription] = await Promise.all([
+    getPlanLimits(businessId),
+    getUsageStats(businessId),
+    prisma.subscriptionARS.findUnique({
+      where: { businessId },
+      include: { plan: true }
+    })
+  ])
+
+  if (!limits || !subscription) {
+    return null
+  }
+
+  const usersPercentage = limits.maxUsers ? (usage.users / limits.maxUsers) * 100 : 0
+  const productsPercentage = limits.maxProducts ? (usage.products / limits.maxProducts) * 100 : 0
+  const salesPercentage = limits.maxSales ? (usage.salesThisMonth / limits.maxSales) * 100 : 0
+
+  return {
+    plan: {
+      name: subscription.plan.name,
+      slug: subscription.plan.slug,
+      priceMonthly: Number(subscription.plan.priceMonthly),
+      isMostPopular: subscription.plan.isMostPopular
+    },
+    limits,
+    usage,
+    percentages: {
+      users: Math.round(usersPercentage),
+      products: Math.round(productsPercentage),
+      sales: Math.round(salesPercentage)
+    },
+    warnings: {
+      users: usersPercentage >= 80,
+      products: productsPercentage >= 80,
+      sales: salesPercentage >= 80
+    },
+    needsUpgrade: usersPercentage >= 100 || productsPercentage >= 100 || salesPercentage >= 100
+  }
+}
+
+/**
+ * Obtener mensaje de sugerencia de upgrade
+ */
+export function getUpgradeMessage(resource: 'users' | 'products' | 'sales', current: number, limit: number): string {
+  const percentage = (current / limit) * 100
+
+  if (percentage >= 100) {
+    return `Alcanzaste el límite de ${resource}. Actualiza tu plan para continuar.`
+  }
+
+  if (percentage >= 80) {
+    return `Estás usando el ${Math.round(percentage)}% de tu límite de ${resource}. Considera actualizar tu plan.`
+  }
+
+  return ''
 }

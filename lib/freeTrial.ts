@@ -25,15 +25,15 @@ export async function createFreeTrial(businessId: string): Promise<{
     const trialEndsAt = new Date();
     trialEndsAt.setDate(trialEndsAt.getDate() + 7); // 7 días
 
-    // Obtener el plan PRO para vincular
+    // Obtener el plan PRO/PYME para vincular
     const proPlan = await prisma.subscriptionPlan.findFirst({
-      where: { tier: "PRO" },
+      where: { slug: "pyme" }, // El plan intermedio en sistema ARS
     });
 
     if (!proPlan) {
       return {
         success: false,
-        error: "Plan PRO no encontrado en la base de datos",
+        error: "Plan PYME no encontrado en la base de datos",
       };
     }
 
@@ -41,8 +41,8 @@ export async function createFreeTrial(businessId: string): Promise<{
       data: {
         businessId,
         planId: proPlan.id,
-        planTier: "PRO", // Plan PRO durante la prueba
-        status: "ACTIVE",
+        planTier: "PYME", // Asignar tier correcto
+        status: "active",
         freeTrial: true,
         trialEndsAt,
         currentPeriodStart: new Date(),

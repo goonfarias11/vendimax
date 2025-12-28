@@ -217,7 +217,7 @@ export default function DemoPage() {
                 className="text-lg bg-white/10 border-white text-white hover:bg-white/20"
                 onClick={() => router.push("/precios")}
               >
-                Ver Planes y Precios
+                Ver Precios Transparentes
               </Button>
             </div>
           </div>

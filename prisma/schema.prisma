@@ -16,8 +16,7 @@ datasource db {
 
 enum UserRole {
   ADMIN        // Acceso total al sistema
-  VENDEDOR     // Puede hacer ventas, ver productos
-  CAJERO       // Solo caja y ventas básicas
+  VENDEDOR     // Puede hacer ventas, ver productos, registrar pagos y gestionar caja
   GERENTE      // Reportes, supervisión, configuración
   SUPERVISOR   // Ver reportes y supervisar operaciones
   OWNER        // Dueño del negocio (máximo nivel)
@@ -35,12 +34,15 @@ model User {
   updatedAt    DateTime @updatedAt
 
   // Relaciones
-  business       Business?       @relation(fields: [businessId], references: [id], onDelete: SetNull)
-  sales          Sale[]
-  cashMovements  CashMovement[]
-  purchases      Purchase[]
-  cashClosings   CashClosing[]
-  stockMovements StockMovement[] // Movimientos de stock realizados
+  business          Business?           @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  sales             Sale[]
+  cashMovements     CashMovement[]
+  cashRegisters     CashRegister[]      // Turnos de caja del usuario
+  purchases         Purchase[]
+  cashClosings      CashClosing[]
+  stockMovements    StockMovement[]
+  clientPayments    ClientPayment[]     // Pagos registrados
+  clientActivityLogs ClientActivityLog[] // Actividad de clientes
 
   @@index([email])
   @@index([role])
@@ -53,10 +55,9 @@ model User {
 // ============================================
 
 enum PlanType {
-  FREE
-  STARTER
+  BASICO
   PRO
-  ENTERPRISE
+  FULL
 }
 
 enum SubscriptionStatus {
@@ -78,13 +79,16 @@ model Business {
   taxId            String?  // CUIT/CUIL
   logo             String?
   ownerId          String   @unique // El usuario que creó el negocio
-  planType         PlanType @default(FREE)
+  planType         PlanType @default(BASICO)
   isDemo           Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   // Relaciones
   users            User[]
+  products         Product[]  // Productos del negocio
+  clients          Client[]   // Clientes del negocio
+  sales            Sale[]     // Ventas del negocio
   subscription     Subscription?
   subscriptionARS  SubscriptionARS?
   invoices         Invoice[]
@@ -150,21 +154,33 @@ model Invoice {
 // ============================================
 
 model SubscriptionPlan {
-  id            String   @id @default(cuid())
-  name          String
-  slug          String   @unique
-  description   String?
-  priceMonthly  Decimal  @db.Decimal(10, 2)
-  priceYearly   Decimal  @db.Decimal(10, 2)
-  setupFee      Decimal  @default(60000) @db.Decimal(10, 2)
-  maxUsers      Int?     // null = ilimitado
-  maxProducts   Int?     // null = ilimitado
-  maxSales      Int?     // null = ilimitado
-  features      Json     @default("[]")
-  isActive      Boolean  @default(true)
-  position      Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  name                  String
+  slug                  String   @unique
+  description           String?
+  priceMonthly          Decimal  @db.Decimal(10, 2)  // Precio en ARS
+  priceYearly           Decimal  @db.Decimal(10, 2)  // Precio anual (con descuento)
+  setupFee              Decimal  @default(0) @db.Decimal(10, 2)
+  
+  // Límites por plan (null = ilimitado)
+  maxUsers              Int?     
+  maxProducts           Int?     
+  maxSales              Int?     // Ventas por mes
+  maxLocations          Int?     // Sucursales/ubicaciones
+  
+  // Características
+  hasAdvancedReports    Boolean  @default(false)
+  hasIntegrations       Boolean  @default(false)
+  hasCurrentAccounts    Boolean  @default(false)  // Cuenta corriente de clientes
+  hasAPI                Boolean  @default(false)
+  supportLevel          String   @default("email") // email, priority, 24/7
+  
+  features              Json     @default("[]")
+  isActive              Boolean  @default(true)
+  isMostPopular         Boolean  @default(false)   // Marcar como "Más Popular"
+  position              Int      @default(0)       // Orden de visualización
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   // Relaciones
   subscriptions    SubscriptionARS[]
@@ -340,9 +356,10 @@ model Category {
 
 model Product {
   id          String   @id @default(cuid())
+  businessId  String   // Multi-tenancy: cada producto pertenece a un negocio
   name        String
-  sku         String   @unique
-  barcode     String?  @unique
+  sku         String
+  barcode     String?
   description String?
   price       Decimal  @db.Decimal(10, 2)
   wholesalePrice Decimal? @db.Decimal(10, 2) // Precio mayorista
@@ -361,17 +378,19 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   // Relaciones
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   saleItems     SaleItem[]
   purchaseItems PurchaseItem[]
   variants      ProductVariant[] // Variantes del producto
   stockMovements StockMovement[] // Historial de movimientos
 
-  @@index([sku])
-  @@index([barcode])
-  @@index([categoryId])
+  @@unique([businessId, sku])    // SKU único por negocio
+  @@unique([businessId, barcode]) // Barcode único por negocio (si existe)
+  @@index([businessId])
+  @@index([businessId, isActive])
+  @@index([businessId, categoryId])
   @@index([name])
-  @@index([isActive])
   @@map("products")
 }
 
@@ -398,33 +417,39 @@ enum SaleStatus {
 }
 
 model Sale {
-  id             String         @id @default(cuid())
-  userId         String
-  clientId       String?
-  cashClosingId  String?
-  total          Decimal        @db.Decimal(10, 2)
-  subtotal       Decimal        @db.Decimal(10, 2)
-  tax            Decimal        @default(0) @db.Decimal(10, 2)
-  discount       Decimal        @default(0) @db.Decimal(10, 2)
-  discountType   String?        // "percentage" o "fixed"
-  paymentMethod  PaymentMethod
-  hasMixedPayment Boolean       @default(false) // Si tiene pagos mixtos
-  status         SaleStatus     @default(COMPLETADO)
-  notes          String?
-  ticketNumber   Int?           // Número de ticket para impresión
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  userId          String
+  clientId        String?
+  cashClosingId   String?
+  cashRegisterId  String?        // Nuevo: relación con turno de caja
+  businessId      String         // Multi-tenancy
+  total           Decimal        @db.Decimal(10, 2)
+  subtotal        Decimal        @db.Decimal(10, 2)
+  tax             Decimal        @default(0) @db.Decimal(10, 2)
+  discount        Decimal        @default(0) @db.Decimal(10, 2)
+  discountType    String?        // "percentage" o "fixed"
+  paymentMethod   PaymentMethod
+  hasMixedPayment Boolean        @default(false) // Si tiene pagos mixtos
+  status          SaleStatus     @default(COMPLETADO)
+  notes           String?
+  ticketNumber    Int?           // Número de ticket para impresión
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   // Relaciones
-  user         User          @relation(fields: [userId], references: [id], onDelete: Restrict)
-  client       Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  cashClosing  CashClosing?  @relation(fields: [cashClosingId], references: [id], onDelete: SetNull)
-  saleItems    SaleItem[]
-  salePayments SalePayment[] // Pagos mixtos
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  client        Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  cashClosing   CashClosing?   @relation(fields: [cashClosingId], references: [id], onDelete: SetNull)
+  cashRegister  CashRegister?  @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  saleItems     SaleItem[]
+  salePayments  SalePayment[]  // Pagos mixtos
 
+  @@index([businessId])
   @@index([userId])
   @@index([clientId])
   @@index([cashClosingId])
+  @@index([cashRegisterId])
   @@index([createdAt])
   @@index([status])
   @@map("sales")
@@ -452,27 +477,92 @@ model SaleItem {
 // CLIENTES
 // ============================================
 
+enum ClientStatus {
+  ACTIVE      // Cliente activo
+  DELINQUENT  // Moroso (excedió límite)
+  INACTIVE    // Inactivo
+  BLOCKED     // Bloqueado manualmente
+}
+
 model Client {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   name        String
   phone       String?
-  email       String?  @unique
+  email       String?      @unique
   address     String?
-  taxId       String?
-  notes       String?
-  creditLimit Decimal  @default(0) @db.Decimal(10, 2) // Límite de crédito
-  currentDebt Decimal  @default(0) @db.Decimal(10, 2) // Deuda actual
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  taxId       String?      // DNI/CUIT
+  notes       String?      @db.Text // Notas internas
+  tags        String[]     @default([]) // Etiquetas para segmentación
+  
+  // Control financiero
+  creditLimit     Decimal      @default(0) @db.Decimal(10, 2)
+  currentDebt     Decimal      @default(0) @db.Decimal(10, 2)
+  hasCreditAccount Boolean     @default(false) // Si tiene cuenta corriente habilitada
+  
+  // Estado y gestión
+  status      ClientStatus @default(ACTIVE)
+  isActive    Boolean      @default(true)
+  
+  // Metadata
+  businessId  String
+  lastPurchaseAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   // Relaciones
-  sales Sale[]
+  business       Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sales          Sale[]
+  payments       ClientPayment[]    // Pagos de cuenta corriente
+  activityLogs   ClientActivityLog[] // Auditoría
 
   @@index([name])
   @@index([email])
   @@index([phone])
+  @@index([businessId])
+  @@index([status])
+  @@index([lastPurchaseAt])
   @@map("clients")
+}
+
+// Registro de pagos de cuenta corriente
+model ClientPayment {
+  id            String   @id @default(cuid())
+  clientId      String
+  amount        Decimal  @db.Decimal(10, 2)
+  paymentMethod String   // EFECTIVO, TRANSFERENCIA, etc
+  reference     String?  // Número de recibo, comprobante
+  notes         String?
+  userId        String   // Usuario que registró el pago
+  createdAt     DateTime @default(now())
+
+  // Relaciones
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("client_payments")
+}
+
+// Auditoría de actividad de clientes
+model ClientActivityLog {
+  id          String   @id @default(cuid())
+  clientId    String
+  action      String   // CREATE, UPDATE, CREDIT_LIMIT_CHANGE, PAYMENT, SALE, BLOCK, etc
+  description String
+  metadata    Json?    // Datos adicionales del cambio
+  userId      String?  // Usuario que realizó la acción
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  // Relaciones
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("client_activity_logs")
 }
 
 // ============================================
@@ -549,28 +639,86 @@ enum CashMovementType {
   CIERRE
   INGRESO
   EGRESO
+  VENTA
+  SALIDA
 }
 
 model CashMovement {
-  id          String           @id @default(cuid())
-  type        CashMovementType
-  amount      Decimal          @db.Decimal(10, 2)
-  description String?
-  reference   String?
-  userId      String
-  createdAt   DateTime         @default(now())
+  id              String           @id @default(cuid())
+  type            CashMovementType
+  amount          Decimal          @db.Decimal(10, 2)
+  description     String?
+  reference       String?
+  userId          String
+  businessId      String           // Multi-tenancy
+  cashRegisterId  String?          // Relación con el turno de caja
+  isAnulado       Boolean          @default(false) // Para movimientos anulados
+  createdAt       DateTime         @default(now())
 
   // Relaciones
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  cashRegister  CashRegister? @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([businessId])
+  @@index([cashRegisterId])
   @@index([type])
   @@index([createdAt])
   @@map("cash_movements")
 }
 
 // ============================================
-// CIERRE DE CAJA
+// SISTEMA DE CAJA POR TURNOS (NUEVO)
+// ============================================
+
+enum CashRegisterStatus {
+  OPEN    // Caja abierta y en uso
+  CLOSED  // Caja cerrada (turno finalizado)
+}
+
+model CashRegister {
+  id              String             @id @default(cuid())
+  businessId      String             // Multi-tenancy
+  userId          String             // Vendedor responsable
+  
+  // Control de turno
+  openedAt        DateTime           @default(now())
+  closedAt        DateTime?
+  status          CashRegisterStatus @default(OPEN)
+  
+  // Montos
+  openingAmount   Decimal            @db.Decimal(10, 2) // Monto inicial al abrir
+  closingAmount   Decimal?           @db.Decimal(10, 2) // Monto real contado al cerrar
+  expectedAmount  Decimal?           @db.Decimal(10, 2) // Monto esperado según ventas
+  difference      Decimal?           @db.Decimal(10, 2) // Diferencia (sobrante/faltante)
+  
+  // Totales por método de pago
+  totalCash       Decimal            @default(0) @db.Decimal(10, 2)
+  totalCard       Decimal            @default(0) @db.Decimal(10, 2)
+  totalTransfer   Decimal            @default(0) @db.Decimal(10, 2)
+  totalOther      Decimal            @default(0) @db.Decimal(10, 2)
+  
+  // Metadata
+  notes           String?            @db.Text
+  salesCount      Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  // Relaciones
+  user            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sales           Sale[]
+  cashMovements   CashMovement[]
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([status])
+  @@index([openedAt])
+  @@index([closedAt])
+  @@map("cash_registers")
+}
+
+// ============================================
+// CIERRE DE CAJA (LEGACY - Mantener compatibilidad)
 // ============================================
 
 model CashClosing {

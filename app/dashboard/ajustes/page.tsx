@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { hasPermission } from "@/lib/permissions";
 
 type BusinessSettings = {
   nombreComercio: string;
@@ -27,7 +28,7 @@ type BusinessSettings = {
 };
 
 export default function AjustesPage() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -41,12 +42,24 @@ export default function AjustesPage() {
     stockMinimoGlobal: 5,
   });
 
+  // Verificar permisos
+  const canEditSettings = session?.user?.role 
+    ? hasPermission(session.user.role as any, 'settings:edit_business')
+    : false;
+
   useEffect(() => {
-    // Verificar que sea ADMIN
-    if (session?.user && (session.user as any).role !== "ADMIN") {
+    // Verificar permisos de acceso solo cuando la sesión esté cargada
+    if (status === 'loading') return;
+    
+    if (status === 'unauthenticated') {
+      router.push('/login');
+      return;
+    }
+    
+    if (session?.user && !canEditSettings) {
       router.push("/dashboard");
     }
-  }, [session, router]);
+  }, [session, status, router, canEditSettings]);
 
   useEffect(() => {
     loadSettings();
@@ -91,6 +104,28 @@ export default function AjustesPage() {
     }
   };
 
+  // Protección: no renderizar si no tiene permisos
+  if (status === 'loading') {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (status === 'unauthenticated' || (session?.user && !canEditSettings)) {
+    return null;
+  }
+
+  // Estado de carga de datos
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -101,28 +136,6 @@ export default function AjustesPage() {
       reader.readAsDataURL(file);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Cargando configuración...</div>
-      </div>
-    );
-  }
-
-  // Verificar permisos
-  if (session?.user && (session.user as any).role !== "ADMIN") {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <Shield className="h-16 w-16 text-gray-400 mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Acceso Denegado</h2>
-        <p className="text-gray-600 mb-6">Solo los administradores pueden acceder a esta sección</p>
-        <Button onClick={() => router.push("/dashboard")}>
-          Volver al Dashboard
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 max-w-4xl">

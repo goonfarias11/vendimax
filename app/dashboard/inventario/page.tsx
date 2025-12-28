@@ -5,11 +5,16 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/dashboard/data-table";
 import { Modal } from "@/components/dashboard/modal";
 import { Plus, Filter, AlertCircle } from "lucide-react";
-import { mockProducts } from "@/lib/mock-data";
 
 export default function InventarioPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterCategory, setFilterCategory] = useState("Todos");
+
+  // Datos de ejemplo (mover a API en el futuro)
+  const mockProducts = [
+    { id: 1, sku: "PROD-001", nombre: "Producto 1", categoria: "Categoría A", precio: 1000, stock: 5, vendidos: 10, estado: "Activo" },
+    { id: 2, sku: "PROD-002", nombre: "Producto 2", categoria: "Categoría B", precio: 2000, stock: 20, vendidos: 5, estado: "Activo" },
+  ];
 
   const columns = [
     { key: "sku", header: "SKU" },

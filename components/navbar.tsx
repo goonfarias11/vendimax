@@ -4,9 +4,23 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
+  const { data: session } = useSession();
+
+  const handleSmoothScroll = (e: React.MouseEvent<HTMLAnchorElement>, targetId: string) => {
+    e.preventDefault();
+    const element = document.querySelector(targetId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+      setIsOpen(false);
+    } else {
+      // Si no está en la página, ir a la home con el anchor
+      window.location.href = `/${targetId}`;
+    }
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-md border-b">
@@ -22,28 +36,39 @@ export function Navbar() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
-            <Link href="#beneficios" className="text-gray-700 hover:text-primary transition-colors">
+            <a 
+              href="#beneficios" 
+              onClick={(e) => handleSmoothScroll(e, '#beneficios')}
+              className="text-gray-700 hover:text-primary transition-colors cursor-pointer"
+            >
               Beneficios
-            </Link>
+            </a>
             <Link href="/precios" className="text-gray-700 hover:text-primary transition-colors">
               Precios
             </Link>
             <Link href="/soporte" className="text-gray-700 hover:text-primary transition-colors">
               Soporte
             </Link>
-            <Link href="/demo" className="text-gray-700 hover:text-primary transition-colors">
+            <a 
+              href="#demo" 
+              onClick={(e) => handleSmoothScroll(e, '#demo')}
+              className="text-gray-700 hover:text-primary transition-colors cursor-pointer"
+            >
               Demo
-            </Link>
+            </a>
           </div>
 
           {/* CTA Buttons */}
           <div className="hidden md:flex items-center space-x-4">
-            <Button variant="ghost" asChild>
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <Button variant="ghost" asChild>
-              <Link href="/login">Iniciar Sesión</Link>
-            </Button>
+            {session ? (
+              <Button variant="ghost" asChild>
+                <Link href="/dashboard">Dashboard</Link>
+              </Button>
+            ) : (
+              <Button variant="ghost" asChild>
+                <Link href="/login">Iniciar Sesión</Link>
+              </Button>
+            )}
             <Button asChild>
               <Link href="/registro">Empezar Gratis</Link>
             </Button>
@@ -63,13 +88,13 @@ export function Navbar() {
       {isOpen && (
         <div className="md:hidden border-t bg-white">
           <div className="px-4 pt-2 pb-4 space-y-2">
-            <Link
+            <a
               href="#beneficios"
-              className="block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100"
-              onClick={() => setIsOpen(false)}
+              onClick={(e) => handleSmoothScroll(e, '#beneficios')}
+              className="block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer"
             >
               Beneficios
-            </Link>
+            </a>
             <Link
               href="/precios"
               className="block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100"
@@ -84,20 +109,23 @@ export function Navbar() {
             >
               Soporte
             </Link>
-            <Link
+            <a
               href="#demo"
-              className="block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100"
-              onClick={() => setIsOpen(false)}
+              onClick={(e) => handleSmoothScroll(e, '#demo')}
+              className="block px-3 py-2 rounded-md text-gray-700 hover:bg-gray-100 cursor-pointer"
             >
               Demo
-            </Link>
+            </a>
             <div className="pt-4 space-y-2">
-              <Button variant="outline" className="w-full" asChild>
-                <Link href="/dashboard">Dashboard</Link>
-              </Button>
-              <Button variant="outline" className="w-full" asChild>
-                <Link href="/login">Iniciar Sesión</Link>
-              </Button>
+              {session ? (
+                <Button variant="outline" className="w-full" asChild>
+                  <Link href="/dashboard">Dashboard</Link>
+                </Button>
+              ) : (
+                <Button variant="outline" className="w-full" asChild>
+                  <Link href="/login">Iniciar Sesión</Link>
+                </Button>
+              )}
               <Button className="w-full" asChild>
                 <Link href="/registro">Empezar Gratis</Link>
               </Button>

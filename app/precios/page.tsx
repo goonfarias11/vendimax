@@ -9,15 +9,16 @@ import Link from "next/link";
 export default function PreciosPage() {
   const planes = [
     {
-      nombre: "Plan Free",
-      precio: "Gratis",
+      nombre: "Básico",
+      precio: "$8.500",
+      periodo: "/mes",
       descripcion: "Perfecto para empezar",
       caracteristicas: [
-        { texto: "Hasta 100 productos", incluido: true },
-        { texto: "Hasta 50 ventas/mes", incluido: true },
-        { texto: "1 usuario", incluido: true },
-        { texto: "Métodos de pago básicos", incluido: true },
+        { texto: "3 usuarios", incluido: true },
+        { texto: "Hasta 500 productos", incluido: true },
+        { texto: "1.000 ventas/mes", incluido: true },
         { texto: "Reportes básicos", incluido: true },
+        { texto: "1 ubicación", incluido: true },
         { texto: "Soporte por email", incluido: true },
         { texto: "Múltiples sucursales", incluido: false },
         { texto: "Reportes avanzados", incluido: false },
@@ -25,29 +26,50 @@ export default function PreciosPage() {
         { texto: "Soporte prioritario", incluido: false },
       ],
       destacado: false,
-      botonTexto: "Empezar Gratis",
-      botonHref: "/registro",
+      botonTexto: "Empezar Ahora",
+      botonHref: "/registro?plan=basico",
     },
     {
-      nombre: "Plan Pro",
+      nombre: "Pro",
       precio: "$14.000",
       periodo: "/mes",
       descripcion: "Para negocios en crecimiento",
       caracteristicas: [
-        { texto: "Productos ilimitados", incluido: true },
-        { texto: "Ventas ilimitadas", incluido: true },
-        { texto: "Usuarios ilimitados", incluido: true },
-        { texto: "Todos los métodos de pago", incluido: true },
+        { texto: "10 usuarios", incluido: true },
+        { texto: "Hasta 5.000 productos", incluido: true },
+        { texto: "10.000 ventas/mes", incluido: true },
         { texto: "Reportes avanzados", incluido: true },
-        { texto: "Múltiples sucursales", incluido: true },
-        { texto: "API access completo", incluido: true },
+        { texto: "3 ubicaciones", incluido: true },
+        { texto: "Soporte prioritario", incluido: true },
+        { texto: "Integraciones", incluido: true },
+        { texto: "Cuenta corriente clientes", incluido: true },
         { texto: "Exportación CSV/PDF", incluido: true },
-        { texto: "Soporte prioritario 24/7", incluido: true },
-        { texto: "Personalización de marca", incluido: true },
+        { texto: "API access completo", incluido: true },
       ],
       destacado: true,
-      botonTexto: "Empezar Prueba Gratis",
+      botonTexto: "Empezar Ahora",
       botonHref: "/registro?plan=pro",
+    },
+    {
+      nombre: "Full",
+      precio: "$22.000",
+      periodo: "/mes",
+      descripcion: "Para grandes empresas",
+      caracteristicas: [
+        { texto: "Usuarios ilimitados", incluido: true },
+        { texto: "Productos ilimitados", incluido: true },
+        { texto: "Ventas ilimitadas", incluido: true },
+        { texto: "Reportes personalizados", incluido: true },
+        { texto: "Ubicaciones ilimitadas", incluido: true },
+        { texto: "Soporte 24/7", incluido: true },
+        { texto: "API personalizada", incluido: true },
+        { texto: "Gerente de cuenta dedicado", incluido: true },
+        { texto: "Personalización de marca", incluido: true },
+        { texto: "Integración avanzada", incluido: true },
+      ],
+      destacado: false,
+      botonTexto: "Empezar Ahora",
+      botonHref: "/registro?plan=full",
     },
   ];
 
@@ -60,7 +82,7 @@ export default function PreciosPage() {
           {/* Header */}
           <div className="text-center mb-16">
             <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
-              Planes y Precios
+              Precios Transparentes
             </h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Elige el plan que mejor se adapte a tu negocio. Cambia o cancela cuando quieras.
@@ -68,7 +90,7 @@ export default function PreciosPage() {
           </div>
 
           {/* Comparación de planes */}
-          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             {planes.map((plan, index) => (
               <div
                 key={index}

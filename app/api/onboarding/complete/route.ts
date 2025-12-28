@@ -37,13 +37,17 @@ export async function POST(req: NextRequest) {
       // Create demo product with unique SKU
       const demoSku = `DEMO-${businessId.slice(-6)}`;
       
-      const existingProduct = await tx.product.findUnique({
-        where: { sku: demoSku },
+      const existingProduct = await tx.product.findFirst({
+        where: { 
+          sku: demoSku,
+          businessId 
+        },
       });
 
       if (!existingProduct) {
         await tx.product.create({
           data: {
+            businessId,
             name: "Producto de Ejemplo",
             sku: demoSku,
             price: 1000,

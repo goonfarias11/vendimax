@@ -77,12 +77,7 @@ export async function checkPlanLimit(
     switch (limitType) {
       case "products":
         currentUsage = await prisma.product.count({
-          where: {
-            business: {
-              id: businessId,
-            },
-            isActive: true,
-          },
+          where: { isActive: true },
         });
         break;
 

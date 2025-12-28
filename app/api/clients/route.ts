@@ -7,21 +7,119 @@ import { logger } from "@/lib/logger"
 
 export const runtime = 'nodejs'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const clients = await prisma.client.findMany({
-      where: {
-        isActive: true
-      },
-      orderBy: {
-        name: 'asc'
-      }
-    })
+    const session = await auth();
+    
+    if (!session?.user?.businessId) {
+      return NextResponse.json({ error: "Usuario sin negocio asignado" }, { status: 401 });
+    }
 
-    return NextResponse.json(clients)
+    const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const search = searchParams.get('search') || '';
+    const status = searchParams.get('status') || '';
+    const hasDebt = searchParams.get('hasDebt') === 'true';
+    const exceedsLimit = searchParams.get('exceedsLimit') === 'true';
+    const tags = searchParams.get('tags')?.split(',').filter(Boolean) || [];
+
+    const where: any = {
+      businessId: session.user.businessId
+    };
+
+    // Filtros
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+        { taxId: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (hasDebt) {
+      where.currentDebt = { gt: 0 };
+    }
+
+    if (exceedsLimit) {
+      where.AND = [
+        { currentDebt: { gt: 0 } },
+        { creditLimit: { gt: 0 } }
+      ];
+    }
+
+    if (tags.length > 0) {
+      where.tags = { hasSome: tags };
+    }
+
+    const [clients, total] = await Promise.all([
+      prisma.client.findMany({
+        where,
+        include: {
+          _count: {
+            select: { sales: true }
+          },
+          sales: {
+            select: {
+              total: true,
+              createdAt: true
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.client.count({ where })
+    ]);
+
+    // Calcular métricas por cliente
+    const clientsWithMetrics = await Promise.all(
+      clients.map(async (client) => {
+        const salesData = await prisma.sale.aggregate({
+          where: { clientId: client.id },
+          _sum: { total: true },
+          _count: true
+        });
+
+        return {
+          ...client,
+          // Asegurar que los campos nuevos tengan valores por defecto
+          status: client.status || 'ACTIVE',
+          tags: client.tags || [],
+          creditLimit: client.creditLimit || 0,
+          currentDebt: client.currentDebt || 0,
+          notes: client.notes || null,
+          // Métricas calculadas
+          totalPurchased: salesData._sum.total || 0,
+          purchaseCount: salesData._count,
+          averageTicket: salesData._count > 0 
+            ? Number(salesData._sum.total) / salesData._count 
+            : 0,
+          lastPurchase: client.sales[0]?.createdAt || null
+        };
+      })
+    );
+
+    return NextResponse.json({
+      clients: clientsWithMetrics,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
-    logger.error("Error fetching clients:", error)
-    return NextResponse.json({ error: "Error al cargar clientes" }, { status: 500 })
+    logger.error("Error fetching clients:", error);
+    return NextResponse.json({ error: "Error al cargar clientes" }, { status: 500 });
   }
 }
 
@@ -39,8 +137,8 @@ export async function POST(request: NextRequest) {
     }
 
     const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    if (!session?.user?.businessId) {
+      return NextResponse.json({ error: "Usuario sin negocio asignado" }, { status: 401 })
     }
 
     const body = await request.json()
@@ -69,7 +167,8 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         email: email?.trim() || null,
         phone: phone?.trim() || null,
-        address: address?.trim() || null
+        address: address?.trim() || null,
+        businessId: session.user.businessId
       }
     })
 

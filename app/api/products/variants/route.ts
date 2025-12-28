@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { verifyProductOwnership } from "@/lib/security/multi-tenant";
 
 // POST /api/products/variants - Crear variante de producto
 export async function POST(req: NextRequest) {
@@ -11,14 +12,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const { productId, name, attributes, sku, barcode, stock, costPrice, salePrice } = await req.json();
+    const businessId = session.user.businessId;
+    const { productId, name, attributes, sku, barcode, stock, price, cost } = await req.json();
 
-    // Validar que el producto pertenezca al negocio
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        userId: session.user.id,
-      },
+    // Verificar que el producto exista y pertenezca al negocio
+    await verifyProductOwnership(productId, businessId);
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
     });
 
     if (!product) {
@@ -40,14 +41,19 @@ export async function POST(req: NextRequest) {
         sku: sku || null,
         barcode: barcode || null,
         stock: stock || 0,
-        costPrice: costPrice || product.costPrice,
-        salePrice: salePrice || product.salePrice,
+        cost: cost || product.cost,
+        price: price || product.price,
       },
     });
 
     return NextResponse.json(variant, { status: 201 });
   } catch (error: any) {
     console.error("[POST /api/products/variants]", error);
+    
+    if (error.status === 403) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    
     return NextResponse.json(
       { error: "Error al crear variante", details: error.message },
       { status: 500 }
@@ -64,6 +70,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const businessId = session.user.businessId;
     const { searchParams } = new URL(req.url);
     const productId = searchParams.get("productId");
 
@@ -71,12 +78,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "productId requerido" }, { status: 400 });
     }
 
-    // Validar que el producto pertenezca al negocio
-    const product = await prisma.product.findFirst({
-      where: {
-        id: productId,
-        userId: session.user.id,
-      },
+    // Verificar que el producto exista y pertenezca al negocio
+    await verifyProductOwnership(productId, businessId);
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
     });
 
     if (!product) {
@@ -91,6 +97,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(variants);
   } catch (error: any) {
     console.error("[GET /api/products/variants]", error);
+    
+    if (error.status === 403) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    
     return NextResponse.json(
       { error: "Error al obtener variantes", details: error.message },
       { status: 500 }

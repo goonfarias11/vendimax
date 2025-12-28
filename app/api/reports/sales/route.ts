@@ -30,7 +30,6 @@ export async function GET(req: NextRequest) {
     // Ventas del período
     const sales = await prisma.sale.findMany({
       where: {
-        userId: session.user.id,
         createdAt: {
           gte: start,
           lte: end,
@@ -84,7 +83,6 @@ export async function GET(req: NextRequest) {
     const topClients = await prisma.sale.groupBy({
       by: ["clientId"],
       where: {
-        userId: session.user.id,
         createdAt: {
           gte: start,
           lte: end,

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { usePermission } from "@/components/auth/PermissionGuard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Search, Edit, Trash2, Package, AlertTriangle } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Package, AlertTriangle, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 interface Product {
@@ -37,6 +39,14 @@ interface Category {
 }
 
 export default function ProductosPage() {
+  const router = useRouter();
+  
+  // Verificar permisos
+  const canView = usePermission('products:view');
+  const canCreate = usePermission('products:create');
+  const canEdit = usePermission('products:edit');
+  const canDelete = usePermission('products:delete');
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,19 +69,37 @@ export default function ProductosPage() {
   });
 
   useEffect(() => {
+    // Si no tiene permiso para ver productos, redirigir
+    if (!canView) {
+      router.push('/dashboard/403');
+      return;
+    }
+    
     fetchProducts();
     fetchCategories();
-  }, []);
+  }, [canView]);
 
   const fetchProducts = async () => {
     try {
       const response = await fetch("/api/products");
-      if (!response.ok) throw new Error("Error al cargar productos");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || "Error al cargar productos";
+        throw new Error(errorMessage);
+      }
       const data = await response.json();
+      
+      // Validar que data sea un array
+      if (!Array.isArray(data)) {
+        console.error("La respuesta no es un array:", data);
+        throw new Error(data.error || "Error: Respuesta inválida del servidor");
+      }
+      
       setProducts(data);
     } catch (error) {
-      toast.error("Error al cargar productos");
-      console.error(error);
+      const message = error instanceof Error ? error.message : "Error al cargar productos";
+      toast.error(message);
+      console.error("Error al cargar productos:", error);
     } finally {
       setLoading(false);
     }
@@ -210,6 +238,17 @@ export default function ProductosPage() {
     );
   }
 
+  // Sin permiso para ver productos
+  if (!canView) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <ShieldAlert className="h-16 w-16 text-red-500" />
+        <h2 className="text-2xl font-bold text-gray-900">Acceso Denegado</h2>
+        <p className="text-gray-600">No tienes permisos para ver productos</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -218,15 +257,17 @@ export default function ProductosPage() {
           <h1 className="text-3xl font-bold text-gray-900">Productos</h1>
           <p className="text-gray-600">Gestiona tu inventario</p>
         </div>
-        <Button
-          onClick={() => {
-            resetForm();
-            setIsModalOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Producto
-        </Button>
+        {canCreate && (
+          <Button
+            onClick={() => {
+              resetForm();
+              setIsModalOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Nuevo Producto
+          </Button>
+        )}
       </div>
 
       {/* KPIs */}
@@ -346,20 +387,25 @@ export default function ProductosPage() {
                     {product.category?.name || "-"}
                   </td>
                   <td className="px-6 py-4 text-right space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openEditModal(product)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleDelete(product.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditModal(product)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(product.id)}
+                        className="ml-2"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -21,6 +21,25 @@ async function main() {
   })
   console.log('✅ Usuario admin creado:', admin.email)
 
+  // Crear negocio de prueba con admin como owner
+  const business = await prisma.business.upsert({
+    where: { email: 'admin@vendimax.com' },
+    update: {},
+    create: {
+      name: 'Negocio de Prueba',
+      email: 'admin@vendimax.com',
+      ownerId: admin.id,
+      planType: 'PRO',
+    },
+  })
+  console.log('✅ Negocio creado:', business.name)
+
+  // Actualizar admin con businessId
+  await prisma.user.update({
+    where: { id: admin.id },
+    data: { businessId: business.id },
+  })
+
   // Crear usuario vendedor de prueba
   const vendedorPassword = await hash('vendedor123', 10)
   const vendedor = await prisma.user.upsert({
@@ -31,6 +50,7 @@ async function main() {
       email: 'vendedor@vendimax.com',
       passwordHash: vendedorPassword,
       role: 'VENDEDOR',
+      businessId: business.id,
       isActive: true,
     },
   })
@@ -63,6 +83,7 @@ async function main() {
   await prisma.product.createMany({
     data: [
       {
+        businessId: business.id,
         name: 'Laptop HP',
         sku: 'LAPTOP-001',
         barcode: '7501234567890',
@@ -73,6 +94,7 @@ async function main() {
         categoryId: categoria1.id,
       },
       {
+        businessId: business.id,
         name: 'Mouse Logitech',
         sku: 'MOUSE-001',
         barcode: '7501234567891',
@@ -83,6 +105,7 @@ async function main() {
         categoryId: categoria1.id,
       },
       {
+        businessId: business.id,
         name: 'Café 1kg',
         sku: 'CAFE-001',
         barcode: '7501234567892',

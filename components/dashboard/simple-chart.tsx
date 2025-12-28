@@ -4,22 +4,31 @@ interface SimpleChartProps {
 }
 
 export function SimpleBarChart({ data, height = 200 }: SimpleChartProps) {
-  const maxValue = Math.max(...data.map((d) => d.value));
+  const maxValue = Math.max(...data.map((d) => d.value), 1); // Evitar división por 0
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-end justify-around gap-2" style={{ height }}>
+    <div className="space-y-6 mt-8">
+      <div 
+        className="flex items-end justify-around gap-4" 
+        style={{ height: `${height}px`, position: 'relative' }}
+      >
         {data.map((item, index) => {
-          const barHeight = (item.value / maxValue) * 100;
+          const barHeight = maxValue > 0 ? (item.value / maxValue) * height * 0.8 : 0;
           return (
-            <div key={index} className="flex flex-1 flex-col items-center gap-2">
-              <div className="relative flex w-full items-end justify-center">
+            <div key={index} className="flex flex-1 flex-col items-center gap-2 h-full">
+              <div className="relative flex w-full h-full items-end justify-center">
                 <div
-                  className="w-full rounded-t-lg bg-primary transition-all hover:bg-primary/80"
-                  style={{ height: `${barHeight}%` }}
+                  className="w-full max-w-[80px] rounded-t-lg bg-primary transition-all hover:bg-primary/80 print:bg-blue-500"
+                  style={{ 
+                    height: `${barHeight}px`,
+                    minHeight: item.value > 0 ? '4px' : '0px',
+                    backgroundColor: 'hsl(217 91% 60%)',
+                    WebkitPrintColorAdjust: 'exact',
+                    colorAdjust: 'exact'
+                  }}
                 >
-                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-medium text-gray-700">
-                    {item.value}
+                  <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-semibold text-foreground whitespace-nowrap print:text-black">
+                    ${item.value.toLocaleString('es-AR')}
                   </span>
                 </div>
               </div>
@@ -27,9 +36,9 @@ export function SimpleBarChart({ data, height = 200 }: SimpleChartProps) {
           );
         })}
       </div>
-      <div className="flex justify-around">
+      <div className="flex justify-around gap-4">
         {data.map((item, index) => (
-          <span key={index} className="text-xs text-gray-600">
+          <span key={index} className="text-sm font-medium text-muted-foreground text-center flex-1 print:text-black">
             {item.label}
           </span>
         ))}

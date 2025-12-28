@@ -5,11 +5,145 @@ import { createSaleSchema } from "@/lib/validations"
 import { salesRateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
 import { z } from "zod"
+import { verifyProductOwnership } from "@/lib/security/multi-tenant"
+import { requirePermission } from "@/lib/auth-middleware"
 
 export const runtime = 'nodejs'
 
+// GET: Listar ventas con filtros avanzados
+export async function GET(request: NextRequest) {
+  try {
+    const permissionCheck = await requirePermission(request, 'pos:access')
+    if (!permissionCheck.authorized) {
+      return permissionCheck.response
+    }
+
+    const session = await auth()
+    if (!session?.user?.businessId) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+    const userId = searchParams.get('userId')
+    const clientId = searchParams.get('clientId')
+    const paymentMethod = searchParams.get('paymentMethod')
+    const status = searchParams.get('status')
+    const search = searchParams.get('search')
+    const page = parseInt(searchParams.get('page') || '1')
+    const limit = parseInt(searchParams.get('limit') || '20')
+    const skip = (page - 1) * limit
+
+    const where: any = {
+      businessId: session.user.businessId
+    }
+
+    // Si es VENDEDOR, solo ver sus ventas
+    if (session.user.role === 'VENDEDOR') {
+      where.userId = session.user.id
+    } else if (userId && userId !== 'all') {
+      where.userId = userId
+    }
+
+    if (clientId && clientId !== 'all') {
+      where.clientId = clientId
+    }
+
+    if (paymentMethod && paymentMethod !== 'all') {
+      where.paymentMethod = paymentMethod
+    }
+
+    if (status && status !== 'all') {
+      where.status = status
+    }
+
+    if (startDate || endDate) {
+      where.createdAt = {}
+      if (startDate) {
+        where.createdAt.gte = new Date(startDate)
+      }
+      if (endDate) {
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        where.createdAt.lte = end
+      }
+    }
+
+    if (search) {
+      where.ticketNumber = { contains: search }
+    }
+
+    const [sales, total] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          client: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          saleItems: {
+            select: {
+              id: true,
+              quantity: true,
+              price: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      }),
+      prisma.sale.count({ where })
+    ])
+
+    // Formatear respuesta
+    const formattedSales = sales.map(sale => ({
+      id: sale.id,
+      ticketNumber: sale.ticketNumber,
+      createdAt: sale.createdAt,
+      client: sale.client,
+      user: sale.user,
+      subtotal: Number(sale.subtotal),
+      discount: Number(sale.discount),
+      total: Number(sale.total),
+      paymentMethod: sale.paymentMethod,
+      status: sale.status,
+      itemsCount: sale.saleItems.length
+    }))
+
+    return NextResponse.json({
+      sales: formattedSales,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit)
+      }
+    })
+  } catch (error) {
+    console.error("Error fetching sales:", error)
+    return NextResponse.json({ error: "Error al cargar ventas" }, { status: 500 })
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
+    // Verificar permiso para crear ventas
+    const permissionCheck = await requirePermission(request, 'pos:create_sale')
+    if (!permissionCheck.authorized) {
+      return permissionCheck.response
+    }
+
     // Rate limiting
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "127.0.0.1"
     const { success, limit, reset, remaining } = await salesRateLimit(ip)
@@ -30,13 +164,14 @@ export async function POST(request: NextRequest) {
 
     // Autenticación
     const session = await auth()
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !session?.user?.businessId) {
       return NextResponse.json(
         { error: "No autorizado" }, 
         { status: 401 }
       )
     }
 
+    const businessId = session.user.businessId
     const body = await request.json()
     
     // Log temporal para debug
@@ -54,12 +189,15 @@ export async function POST(request: NextRequest) {
 
     // Verificar stock antes de crear la venta
     for (const item of items) {
+      // Verificar que el producto pertenezca al negocio
+      await verifyProductOwnership(item.productId, businessId)
+      
       const product = await prisma.product.findUnique({
         where: { id: item.productId },
-        select: { stock: true, name: true, isActive: true }
+        select: { stock: true, name: true, isActive: true, businessId: true }
       })
 
-      if (!product) {
+      if (!product || product.businessId !== businessId) {
         return NextResponse.json(
           { error: `Producto ${item.productId} no encontrado` },
           { status: 400 }
@@ -101,6 +239,15 @@ export async function POST(request: NextRequest) {
     })
     const ticketNumber = (lastSale?.ticketNumber || 0) + 1
 
+    // Buscar caja abierta del usuario
+    const openCashRegister = await prisma.cashRegister.findFirst({
+      where: {
+        userId: session.user.id,
+        businessId,
+        status: 'OPEN'
+      }
+    })
+
     // Crear venta con items en una transacción
     const sale = await prisma.$transaction(async (tx) => {
       // Crear la venta
@@ -108,6 +255,8 @@ export async function POST(request: NextRequest) {
         data: {
           clientId,
           userId: session.user.id,
+          businessId,
+          cashRegisterId: openCashRegister?.id, // Asociar a caja abierta
           total,
           subtotal,
           tax: 0,
@@ -160,25 +309,66 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Registrar movimiento de caja
-      await tx.cashMovement.create({
-        data: {
-          userId: session.user.id,
-          type: "INGRESO",
-          amount: total,
-          description: `Venta #${ticketNumber} - ${paymentMethod}`,
-          reference: newSale.id
-        }
-      })
-
-      // Si el cliente tiene cuenta corriente, actualizar deuda
-      if (clientId && paymentMethod === "CUENTA_CORRIENTE") {
-        await tx.client.update({
-          where: { id: clientId },
+      // Registrar movimiento de caja (solo si no es cuenta corriente)
+      if (paymentMethod !== "CUENTA_CORRIENTE") {
+        await tx.cashMovement.create({
           data: {
-            currentDebt: { increment: total }
+            userId: session.user.id,
+            businessId,
+            cashRegisterId: openCashRegister?.id,
+            type: "VENTA",
+            amount: total,
+            description: `Venta #${ticketNumber} - ${paymentMethod}`,
+            reference: newSale.id
           }
         })
+      }
+
+      // Actualizar cliente: última compra y deuda si es cuenta corriente
+      if (clientId) {
+        const updateData: any = {
+          lastPurchaseAt: new Date()
+        }
+
+        if (paymentMethod === "CUENTA_CORRIENTE") {
+          updateData.currentDebt = { increment: total }
+        }
+
+        const updatedClient = await tx.client.update({
+          where: { id: clientId },
+          data: updateData
+        })
+
+        // Si usa cuenta corriente, verificar si excede el límite y actualizar estado
+        if (paymentMethod === "CUENTA_CORRIENTE") {
+          const newDebt = Number(updatedClient.currentDebt) + total
+          
+          if (newDebt > Number(updatedClient.creditLimit) && updatedClient.status === 'ACTIVE') {
+            await tx.client.update({
+              where: { id: clientId },
+              data: { status: 'DELINQUENT' }
+            })
+          }
+
+          // Registrar en log de actividad
+          await tx.clientActivityLog.create({
+            data: {
+              id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              clientId,
+              action: 'SALE',
+              description: `Venta a crédito #${ticketNumber} por $${total}`,
+              userId: session.user.id,
+              metadata: {
+                saleId: newSale.id,
+                amount: total,
+                previousDebt: updatedClient.currentDebt.toString(),
+                newDebt: newDebt.toString()
+              },
+              ipAddress: ip,
+              createdAt: new Date()
+            }
+          })
+        }
       }
 
       return newSale
@@ -222,61 +412,5 @@ export async function POST(request: NextRequest) {
       { error: "Error al crear la venta" },
       { status: 500 }
     )
-  }
-}
-
-export async function GET() {
-  try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
-
-    const sales = await prisma.sale.findMany({
-      include: {
-        client: {
-          select: {
-            name: true
-          }
-        },
-        user: {
-          select: {
-            name: true
-          }
-        },
-        saleItems: {
-          include: {
-            product: {
-              select: {
-                name: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      },
-      take: 100
-    })
-
-    // Formatear ventas con números convertidos
-    const formattedSales = sales.map(sale => ({
-      ...sale,
-      total: Number(sale.total),
-      subtotal: Number(sale.subtotal),
-      tax: Number(sale.tax),
-      discount: Number(sale.discount),
-      saleItems: sale.saleItems.map(item => ({
-        ...item,
-        price: Number(item.price),
-        subtotal: Number(item.subtotal)
-      }))
-    }))
-
-    return NextResponse.json(formattedSales)
-  } catch (error) {
-    console.error("Error fetching sales:", error)
-    return NextResponse.json({ error: "Error al cargar ventas" }, { status: 500 })
   }
 }

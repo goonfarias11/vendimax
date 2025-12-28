@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { verifyProductOwnership } from "@/lib/security/multi-tenant";
 
 // POST /api/products/stock-movements - Registrar movimiento de stock
 export async function POST(req: NextRequest) {
@@ -11,6 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const businessId = session.user.businessId;
     const { productId, variantId, type, quantity, reason, reference } = await req.json();
 
     // Validar tipo de movimiento
@@ -19,10 +21,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Tipo de movimiento inválido" }, { status: 400 });
     }
 
+    // Verificar que el producto pertenezca al negocio
+    await verifyProductOwnership(productId, businessId);
+
     // Validar que el producto exista
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
+        businessId
       },
     });
 
@@ -48,7 +54,6 @@ export async function POST(req: NextRequest) {
     const movement = await prisma.stockMovement.create({
       data: {
         productId,
-        variantId: variantId || null,
         type,
         quantity,
         reason: reason || null,
@@ -62,10 +67,9 @@ export async function POST(req: NextRequest) {
             sku: true,
           },
         },
-        variant: {
+        user: {
           select: {
             name: true,
-            sku: true,
           },
         },
       },
@@ -107,6 +111,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(movement, { status: 201 });
   } catch (error: any) {
     console.error("[POST /api/products/stock-movements]", error);
+    
+    if (error.status === 403) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    
     return NextResponse.json(
       { error: "Error al registrar movimiento", details: error.message },
       { status: 500 }
@@ -123,6 +132,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
+    const businessId = session.user.businessId;
     const { searchParams } = new URL(req.url);
     const productId = searchParams.get("productId");
     const variantId = searchParams.get("variantId");
@@ -130,9 +140,12 @@ export async function GET(req: NextRequest) {
 
     // Validar que el producto pertenezca al negocio
     if (productId) {
+      await verifyProductOwnership(productId, businessId);
+
       const product = await prisma.product.findFirst({
         where: {
           id: productId,
+          businessId
         },
       });
 
@@ -143,20 +156,11 @@ export async function GET(req: NextRequest) {
 
     const movements = await prisma.stockMovement.findMany({
       where: {
-        productId: productId || undefined,
-        variantId: variantId || undefined,
-        product: {
-          userId: session.user.id,
-        },
+        ...(productId && { productId }),
+        ...(variantId && { /* variantId no existe en schema */ }),
       },
       include: {
         product: {
-          select: {
-            name: true,
-            sku: true,
-          },
-        },
-        variant: {
           select: {
             name: true,
             sku: true,
@@ -175,6 +179,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(movements);
   } catch (error: any) {
     console.error("[GET /api/products/stock-movements]", error);
+    
+    if (error.status === 403) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+    
     return NextResponse.json(
       { error: "Error al obtener movimientos", details: error.message },
       { status: 500 }
