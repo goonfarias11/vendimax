@@ -66,20 +66,30 @@ export const authConfig = {
   ],
   callbacks: {
     async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id
-        token.role = user.role
-        token.businessId = user.businessId
+      try {
+        if (user) {
+          token.id = user.id
+          token.role = user.role
+          token.businessId = user.businessId
+        }
+        return token
+      } catch (error) {
+        logger.error("Error en JWT callback:", error)
+        return token
       }
-      return token
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id as string
-        session.user.role = token.role as string
-        session.user.businessId = token.businessId as string | null
+      try {
+        if (session.user) {
+          session.user.id = token.id as string
+          session.user.role = token.role as string
+          session.user.businessId = token.businessId as string | null
+        }
+        return session
+      } catch (error) {
+        logger.error("Error en session callback:", error)
+        return session
       }
-      return session
     }
   },
   pages: {
