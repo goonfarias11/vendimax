@@ -128,11 +128,13 @@ async function main() {
         name: 'María García',
         email: 'maria@example.com',
         phone: '+52 555 1234567',
+        businessId: business.id,
       },
       {
         name: 'Carlos López',
         email: 'carlos@example.com',
         phone: '+52 555 7654321',
+        businessId: business.id,
       },
     ],
     skipDuplicates: true,

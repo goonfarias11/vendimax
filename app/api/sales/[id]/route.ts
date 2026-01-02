@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
 import { requirePermission } from "@/lib/auth-middleware"
 import { z } from "zod"
@@ -68,7 +69,7 @@ export async function GET(
             email: true
           }
         },
-        cashMovement: true
+        // cashMovement: true // TODO: Agregar relación en schema si es necesaria
       }
     })
 
@@ -78,13 +79,18 @@ export async function GET(
 
     // Si es VENDEDOR, no mostrar costos ni márgenes
     if (session.user.role === 'VENDEDOR') {
-      sale.saleItems = sale.saleItems.map(item => ({
-        ...item,
-        product: {
-          ...item.product,
-          cost: 0 // Ocultar costo
-        }
-      }))
+      // No modificar sale.saleItems directamente para evitar conflicto de tipos
+      const sanitizedSale = {
+        ...sale,
+        saleItems: sale.saleItems.map(item => ({
+          ...item,
+          product: {
+            ...item.product,
+            cost: new Prisma.Decimal(0) // Ocultar costo
+          }
+        }))
+      }
+      return NextResponse.json(sanitizedSale)
     }
 
     return NextResponse.json(sale)
@@ -134,8 +140,8 @@ export async function PUT(
       return NextResponse.json({ error: "Venta no encontrada" }, { status: 404 })
     }
 
-    if (sale.status === 'ANULADO') {
-      return NextResponse.json({ error: "La venta ya está anulada" }, { status: 400 })
+    if (sale.status === 'CANCELADO') {
+      return NextResponse.json({ error: "La venta ya está cancelada" }, { status: 400 })
     }
 
     // Anular en transacción
@@ -144,7 +150,7 @@ export async function PUT(
       const canceledSale = await tx.sale.update({
         where: { id },
         data: {
-          status: 'ANULADO',
+          status: 'CANCELADO',
           updatedAt: new Date()
         }
       })
@@ -167,7 +173,7 @@ export async function PUT(
             quantity: item.quantity,
             reason: `Devolución por anulación de venta #${sale.ticketNumber}`,
             userId: session.user.id,
-            businessId: session.user.businessId
+            // businessId: session.user.businessId // TODO: Agregar campo a schema si es necesario
           }
         })
       }
@@ -187,7 +193,7 @@ export async function PUT(
         await tx.cashMovement.updateMany({
           where: {
             type: 'VENTA',
-            referenceId: id
+            reference: id // Campo reference, no referenceId
           },
           data: {
             description: `ANULADO - ${reason}`
@@ -200,34 +206,35 @@ export async function PUT(
             id: `cash_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
             type: 'SALIDA',
             amount: sale.total,
-            description: `Anulación de venta #${sale.ticketNumber} - ${reason}`,
-            paymentMethod: sale.paymentMethod,
-            referenceId: id,
+            description: `Anulación de venta #${sale.ticketNumber} (${sale.paymentMethod}) - ${reason}`,
+            reference: id, // Campo reference, no referenceId
             userId: session.user.id,
-            businessId: session.user.businessId
+            businessId: session.user.businessId!
           }
         })
       }
 
       // 5. Log de auditoría
-      await tx.auditLog.create({
-        data: {
-          id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-          userId: session.user.id,
-          businessId: session.user.businessId,
-          action: 'SALE_CANCELED',
-          entity: 'Sale',
-          entityId: id,
-          details: `Venta #${sale.ticketNumber} anulada - ${reason}`,
-          metadata: {
-            saleId: id,
-            ticketNumber: sale.ticketNumber,
-            total: sale.total.toString(),
-            reason,
-            items: sale.saleItems.length
-          }
-        }
-      })
+      // TODO: Implementar modelo AuditLog en schema
+      // // TODO: Implementar modelo AuditLog en schema
+      // await tx.auditLog.create({
+      //   data: {
+      //     id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      //     userId: session.user.id,
+      //     businessId: session.user.businessId,
+      //     action: 'SALE_CANCELED',
+      //     entity: 'Sale',
+      //     entityId: id,
+      //     details: `Venta #${sale.ticketNumber} anulada - ${reason}`,
+      //     metadata: {
+      //       saleId: id,
+      //       ticketNumber: sale.ticketNumber,
+      //       total: sale.total.toString(),
+      //       reason,
+      //       items: sale.saleItems.length
+      //     }
+      //   }
+      // })
 
       return canceledSale
     })
@@ -239,7 +246,7 @@ export async function PUT(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
+        { error: "Datos inválidos", details: error.issues },
         { status: 400 }
       )
     }

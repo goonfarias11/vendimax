@@ -51,6 +51,7 @@ export async function PUT(
           amount: payment,
           description: `Pago cuenta corriente - ${client.name}`,
           reference: `credit-payment-${id}`,
+          businessId: session.user.businessId!,
         },
       });
 

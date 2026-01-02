@@ -223,6 +223,7 @@ export async function POST(request: NextRequest) {
           phone: '+54 11 9876-5432',
           address: 'Av. Santa Fe 2000',
           taxId: '20-98765432-1',
+          businessId: demoBusiness.id,
         },
         {
           name: 'María González',
@@ -230,10 +231,12 @@ export async function POST(request: NextRequest) {
           phone: '+54 11 5555-1234',
           address: 'Calle Falsa 123',
           taxId: '27-55555555-5',
+          businessId: demoBusiness.id,
         },
         {
           name: 'Carlos Rodríguez',
           phone: '+54 11 4444-9999',
+          businessId: demoBusiness.id,
         },
       ],
     });
@@ -253,6 +256,7 @@ export async function POST(request: NextRequest) {
           subtotal: 15000,
           total: 15000,
           status: 'COMPLETADO',
+          businessId: demoBusiness.id,
           saleItems: {
             create: [
               {
@@ -275,6 +279,7 @@ export async function POST(request: NextRequest) {
           paymentMethod: 'TARJETA_DEBITO',
           subtotal: 35000,
           total: 35000,
+          businessId: demoBusiness.id,
           status: 'COMPLETADO',
           saleItems: {
             create: [
@@ -297,6 +302,7 @@ export async function POST(request: NextRequest) {
         amount: 10000,
         description: 'Apertura de caja inicial',
         userId: demoUser.id,
+        businessId: demoBusiness.id,
       },
     });
 

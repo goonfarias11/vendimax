@@ -206,6 +206,7 @@ export async function POST(request: NextRequest) {
         description,
         reference,
         userId: session.user.id,
+        businessId: session.user.businessId!,
       },
       include: {
         user: {

@@ -162,28 +162,29 @@ export async function POST(request: NextRequest) {
     // await sendWelcomeEmail(newUser.email, validatedData.password)
 
     // Log de auditoría
-    await prisma.auditLog.create({
-      data: {
-        id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        userId: session.user.id,
-        businessId: session.user.businessId,
-        action: 'USER_CREATED',
-        entity: 'User',
-        entityId: newUser.id,
-        details: `Usuario ${newUser.email} creado con rol ${newUser.role}`,
-        metadata: { 
-          userName: newUser.name,
-          userEmail: newUser.email,
-          userRole: newUser.role
-        }
-      }
-    })
+    // TODO: Implementar modelo AuditLog en Prisma schema
+    // await prisma.auditLog.create({
+    //   data: {
+    //     id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    //     userId: session.user.id,
+    //     businessId: session.user.businessId,
+    //     action: 'USER_CREATED',
+    //     entity: 'User',
+    //     entityId: newUser.id,
+    //     details: `Usuario ${newUser.email} creado con rol ${newUser.role}`,
+    //     metadata: { 
+    //       userName: newUser.name,
+    //       userEmail: newUser.email,
+    //       userRole: newUser.role
+    //     }
+    //   }
+    // })
 
     return NextResponse.json(newUser, { status: 201 })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
+        { error: "Datos inválidos", details: error.issues },
         { status: 400 }
       )
     }

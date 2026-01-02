@@ -59,29 +59,31 @@ export async function GET(
     }
 
     // Obtener logs de auditoría
-    const auditLogs = await prisma.auditLog.findMany({
-      where: {
-        OR: [
-          { userId: id },
-          { entityId: id, entity: 'User' }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: {
-        id: true,
-        action: true,
-        details: true,
-        metadata: true,
-        createdAt: true,
-        user: {
-          select: {
-            name: true,
-            email: true
-          }
-        }
-      }
-    })
+    // TODO: Implementar modelo AuditLog en Prisma schema
+    const auditLogs: any[] = []
+    // const auditLogs = await prisma.auditLog.findMany({
+    //   where: {
+    //     OR: [
+    //       { userId: id },
+    //       { entityId: id, entity: 'User' }
+    //     ]
+    //   },
+    //   orderBy: { createdAt: 'desc' },
+    //   take: 10,
+    //   select: {
+    //     id: true,
+    //     action: true,
+    //     details: true,
+    // //     metadata: true,
+    //     createdAt: true,
+    //     user: {
+    //       select: {
+    //         name: true,
+    //         email: true
+    //       }
+    //     }
+    //   }
+    // })
 
     return NextResponse.json({
       ...user,
@@ -179,18 +181,19 @@ export async function PUT(
     })
 
     // Log de auditoría
-    await prisma.auditLog.create({
-      data: {
-        id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        userId: session.user.id,
-        businessId: session.user.businessId,
-        action: 'USER_UPDATED',
-        entity: 'User',
-        entityId: id,
-        details: `Usuario ${targetUser.email} actualizado`,
-        metadata: { changes }
-      }
-    })
+    // TODO: Implementar modelo AuditLog en Prisma schema
+    // await prisma.auditLog.create({
+    //   data: {
+    //     id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    //     userId: session.user.id,
+    //     businessId: session.user.businessId,
+    //     action: 'USER_UPDATED',
+    //     entity: 'User',
+    //     entityId: id,
+    //     details: `Usuario ${targetUser.email} actualizado`,
+    //     metadata: { changes }
+    //   }
+    // })
 
     // TODO: Si se suspendió el usuario, invalidar sus sesiones
     // TODO: Si se cambió el rol, refrescar permisos en sesiones activas
@@ -199,7 +202,7 @@ export async function PUT(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
+        { error: "Datos inválidos", details: error.issues },
         { status: 400 }
       )
     }

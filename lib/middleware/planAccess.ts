@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getUpgradeRecommendation } from "@/lib/planAccessControl";
+// import { getUpgradeRecommendation } from "@/lib/planAccessControl"; // TODO: Implementar función
+
+// Stub temporal
+async function getUpgradeRecommendation(businessId: string) {
+  return "Actualiza tu plan para continuar";
+}
 
 interface PlanLimits {
   products: number;

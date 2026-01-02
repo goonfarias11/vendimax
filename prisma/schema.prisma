@@ -55,8 +55,11 @@ model User {
 // ============================================
 
 enum PlanType {
+  FREE
   BASICO
+  STARTER
   PRO
+  ENTERPRISE
   FULL
 }
 
