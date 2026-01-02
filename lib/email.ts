@@ -11,7 +11,14 @@ import {
   AddonDeactivatedEmail
 } from '@/emails'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialization - solo crear cuando se use
+let resend: Resend | null = null;
+function getResend() {
+  if (!resend && process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
+}
 
 export interface EmailOptions {
   to: string
@@ -25,8 +32,13 @@ async function sendEmail({ to, subject, react }: EmailOptions) {
     return { success: false, error: 'API key not configured' }
   }
 
+  const resendClient = getResend();
+  if (!resendClient) {
+    return { success: false, error: 'Failed to initialize Resend' };
+  }
+
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await resendClient.emails.send({
       from: process.env.EMAIL_FROM || 'VendiMax <notificaciones@vendimax.com>',
       to,
       subject,
