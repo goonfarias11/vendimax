@@ -1,11 +1,24 @@
 import Stripe from 'stripe';
 
-// Permitir build sin STRIPE_SECRET_KEY (se lanzará error en runtime si se usa)
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder';
+// Lazy initialization para evitar errores durante build
+let stripeInstance: Stripe | null = null;
 
-export const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: '2025-11-17.clover',
-  typescript: true,
+export function getStripe(): Stripe {
+  if (!stripeInstance) {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder';
+    stripeInstance = new Stripe(stripeSecretKey, {
+      apiVersion: '2025-11-17.clover',
+      typescript: true,
+    });
+  }
+  return stripeInstance;
+}
+
+// Export legacy para compatibilidad (lazy)
+export const stripe = new Proxy({} as Stripe, {
+  get(target, prop) {
+    return getStripe()[prop as keyof Stripe];
+  }
 });
 
 // Configuración de planes

@@ -3,15 +3,21 @@
 
 import { Payment, MercadoPagoConfig } from 'mercadopago'
 
-// Configurar el cliente de MercadoPago
-const client = new MercadoPagoConfig({
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-placeholder',
-  options: {
-    timeout: 5000
-  }
-})
+// Lazy initialization para evitar errores durante build
+let paymentInstance: Payment | null = null;
 
-const payment = new Payment(client)
+function getMercadoPagoPayment(): Payment {
+  if (!paymentInstance) {
+    const client = new MercadoPagoConfig({
+      accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || 'TEST-placeholder',
+      options: {
+        timeout: 5000
+      }
+    });
+    paymentInstance = new Payment(client);
+  }
+  return paymentInstance;
+}
 
 export interface CreatePreApprovalParams {
   reason: string // Nombre del plan
@@ -173,6 +179,7 @@ export async function createPayment(params: {
   notification_url?: string
 }) {
   try {
+    const payment = getMercadoPagoPayment();
     const result = await payment.create({
       body: params
     })
@@ -188,7 +195,8 @@ export async function createPayment(params: {
  */
 export async function getPayment(paymentId: string) {
   try {
-    const result = await payment.get({ id: paymentId })
+    const paymentClient = getMercadoPagoPayment();
+    const result = await paymentClient.get({ id: paymentId })
     return result
   } catch (error) {
     console.error('Error al obtener pago:', error)
