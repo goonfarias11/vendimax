@@ -649,8 +649,11 @@ enum UserRole {
 }
 
 enum PlanType {
+  FREE
   BASICO
+  STARTER
   PRO
+  ENTERPRISE
   FULL
 }
 
