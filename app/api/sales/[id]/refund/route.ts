@@ -176,6 +176,7 @@ export async function POST(
             description: `Devolución ${validatedData.type === "TOTAL" ? "total" : "parcial"} - Venta #${sale.ticketNumber || sale.id.slice(-6)} - ${validatedData.reason}`,
             reference: newRefund.id,
             userId: session.user.id,
+            businessId: sale.businessId,
           },
         });
       }
