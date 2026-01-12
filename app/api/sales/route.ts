@@ -175,23 +175,38 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     
     // Log temporal para debug
-    logger.debug("Body recibido en sales API:", { body })
+    console.log("=== DATOS RECIBIDOS ===")
+    console.log("Body completo:", JSON.stringify(body, null, 2))
+    console.log("Tipos de datos:")
+    console.log("- subtotal:", typeof body.subtotal, body.subtotal)
+    console.log("- total:", typeof body.total, body.total)
+    console.log("- discount:", typeof body.discount, body.discount)
+    if (body.items && body.items.length > 0) {
+      console.log("- items[0].quantity:", typeof body.items[0].quantity, body.items[0].quantity)
+      console.log("- items[0].unitPrice:", typeof body.items[0].unitPrice, body.items[0].unitPrice)
+      console.log("- items[0].subtotal:", typeof body.items[0].subtotal, body.items[0].subtotal)
+    }
     
     // Validar datos de entrada
     const validationResult = createSaleSchema.safeParse(body)
     if (!validationResult.success) {
-      logger.error("Validación fallida:", validationResult.error)
+      console.error("=== VALIDACIÓN FALLIDA ===")
+      console.error("Errores completos:", JSON.stringify(validationResult.error.issues, null, 2))
       return NextResponse.json(
         { 
           error: "Datos inválidos",
           details: validationResult.error.issues.map(e => ({
             field: e.path.join('.'),
-            message: e.message
+            message: e.message,
+            received: e.received
           }))
         },
         { status: 400 }
       )
     }
+    
+    console.log("=== VALIDACIÓN EXITOSA ===")
+    console.log("Datos validados:", JSON.stringify(validationResult.data, null, 2))
     
     const { 
       clientId, 
