@@ -108,6 +108,13 @@ export function POSInterface() {
   };
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
+    const itemPrice = variant ? (variant.salePrice || 0) : (product.salePrice || 0);
+    
+    if (itemPrice <= 0) {
+      alert("Error: El producto no tiene un precio válido");
+      return;
+    }
+
     const itemId = variant ? variant.id : product.id;
     const existingItem = cart.find(
       (item) => item.productId === product.id && item.variantId === variant?.id
@@ -120,9 +127,9 @@ export function POSInterface() {
         productId: product.id,
         variantId: variant?.id,
         name: variant ? `${product.name} - ${variant.name}` : product.name,
-        price: variant ? variant.salePrice : product.salePrice,
+        price: itemPrice,
         quantity: 1,
-        subtotal: variant ? variant.salePrice : product.salePrice,
+        subtotal: itemPrice,
       };
       setCart([...cart, newItem]);
     }
@@ -181,6 +188,12 @@ export function POSInterface() {
     setIsProcessing(true);
 
     try {
+      // Validar que tengamos números válidos antes de enviar
+      if (isNaN(subtotal) || isNaN(total) || subtotal < 0 || total < 0) {
+        alert("Error: Los totales calculados no son válidos. Por favor, recarga la página.");
+        return;
+      }
+
       const saleData = {
         clientId: selectedClient?.id || undefined,
         items: cart.map((item) => ({
@@ -190,15 +203,15 @@ export function POSInterface() {
           unitPrice: Number(item.price),
           subtotal: Number(item.subtotal),
         })),
-        subtotal: Number(subtotal),
-        discount: Number(discountAmount),
+        subtotal: Number(subtotal.toFixed(2)),
+        discount: Number(discountAmount.toFixed(2)),
         discountType,
-        total: Number(total),
+        total: Number(total.toFixed(2)),
         paymentMethod: payments.length > 1 ? "MIXTO" : payments[0].method,
         hasMixedPayment: payments.length > 1,
         payments: payments.length > 1 ? payments.map(p => ({
           method: p.method,
-          amount: Number(p.amount),
+          amount: Number(p.amount.toFixed(2)),
           reference: p.reference
         })) : undefined,
       };

@@ -45,22 +45,49 @@ export async function GET(request: NextRequest) {
 
     const businessId = session.user.businessId
 
+    const { searchParams } = new URL(request.url)
+    const search = searchParams.get('search')
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
+
+    const where: any = {
+      businessId,
+      isActive: true
+    }
+
+    // Agregar búsqueda si se proporciona
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { barcode: { contains: search, mode: 'insensitive' } }
+      ]
+    }
+
     const products = await prisma.product.findMany({
-      where: {
-        businessId,
-        isActive: true
-      },
+      where,
       include: {
         category: {
           select: {
             id: true,
             name: true
           }
+        },
+        variants: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            price: true,
+            stock: true,
+            isActive: true
+          }
         }
       },
       orderBy: {
         name: 'asc'
-      }
+      },
+      take: limit
     })
 
     const formatted = products.map(p => ({
@@ -70,6 +97,7 @@ export async function GET(request: NextRequest) {
       barcode: p.barcode,
       description: p.description,
       price: Number(p.price),
+      salePrice: Number(p.price), // Para compatibilidad con POS
       cost: Number(p.cost),
       stock: p.stock,
       minStock: p.minStock,
@@ -79,7 +107,16 @@ export async function GET(request: NextRequest) {
       image: p.image,
       unit: p.unit,
       taxRate: Number(p.taxRate),
-      isActive: p.isActive
+      isActive: p.isActive,
+      hasVariants: (p as any).variants?.length > 0,
+      variants: (p as any).variants?.map((v: any) => ({
+        id: v.id,
+        name: v.name,
+        sku: v.sku,
+        salePrice: Number(v.price),
+        stock: v.stock,
+        isActive: v.isActive
+      }))
     }))
 
     return NextResponse.json(formatted)
