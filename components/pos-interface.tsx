@@ -186,17 +186,21 @@ export function POSInterface() {
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId || undefined,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          subtotal: item.subtotal,
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.price),
+          subtotal: Number(item.subtotal),
         })),
-        subtotal,
-        discount: discountAmount,
+        subtotal: Number(subtotal),
+        discount: Number(discountAmount),
         discountType,
-        total,
+        total: Number(total),
         paymentMethod: payments.length > 1 ? "MIXTO" : payments[0].method,
         hasMixedPayment: payments.length > 1,
-        payments: payments.length > 1 ? payments : undefined,
+        payments: payments.length > 1 ? payments.map(p => ({
+          method: p.method,
+          amount: Number(p.amount),
+          reference: p.reference
+        })) : undefined,
       };
 
       console.log("Enviando datos de venta:", saleData);
@@ -210,7 +214,17 @@ export function POSInterface() {
       if (!res.ok) {
         const error = await res.json();
         console.error("Error del servidor:", error);
-        throw new Error(error.error || error.details || "Error al procesar la venta");
+        console.error("Datos enviados:", saleData);
+        
+        // Mostrar detalles del error si están disponibles
+        let errorMessage = error.error || "Error al procesar la venta";
+        if (error.details && Array.isArray(error.details)) {
+          errorMessage += "\n\nDetalles:\n" + error.details.map((d: any) => 
+            `- ${d.field}: ${d.message}`
+          ).join("\n");
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const sale = await res.json();

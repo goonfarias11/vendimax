@@ -18,12 +18,12 @@ export function middleware(request: NextRequest) {
   response.headers.set(
     'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.stripe.com; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.stripe.com https://vercel.live; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https: blob:; " +
     "font-src 'self' data:; " +
-    "connect-src 'self' https://api.stripe.com https://*.mercadopago.com; " +
-    "frame-src https://js.stripe.com https://checkout.stripe.com;"
+    "connect-src 'self' https://api.stripe.com https://*.mercadopago.com https://vercel.live; " +
+    "frame-src https://js.stripe.com https://checkout.stripe.com https://vercel.live;"
   );
 
   return response;
