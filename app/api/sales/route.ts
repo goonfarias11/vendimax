@@ -342,7 +342,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Crear pagos mixtos si aplica
-      if (hasMixedPayment && payments.length > 0) {
+      if (hasMixedPayment && payments && payments.length > 0) {
         for (const payment of payments) {
           await tx.salePayment.create({
             data: {
