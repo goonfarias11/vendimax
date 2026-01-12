@@ -5,22 +5,46 @@ import { z } from "zod"
 // ============================================
 
 export const createSaleSchema = z.object({
-  clientId: z.string().cuid("ID de cliente inválido"),
+  clientId: z.string().cuid("ID de cliente inválido").optional(),
   paymentMethod: z.enum([
     "EFECTIVO", 
     "TARJETA_DEBITO", 
     "TARJETA_CREDITO", 
     "TRANSFERENCIA", 
     "QR", 
+    "CUENTA_CORRIENTE",
+    "MIXTO",
     "OTRO"
   ]),
   items: z.array(
     z.object({
       productId: z.string().cuid("ID de producto inválido"),
+      variantId: z.string().cuid("ID de variante inválido").optional(),
       quantity: z.coerce.number().int().positive("La cantidad debe ser mayor a 0"),
-      price: z.coerce.number().positive("El precio debe ser mayor a 0")
+      unitPrice: z.coerce.number().positive("El precio debe ser mayor a 0"),
+      subtotal: z.coerce.number().positive("El subtotal debe ser mayor a 0")
     })
-  ).min(1, "Debe haber al menos un producto en la venta")
+  ).min(1, "Debe haber al menos un producto en la venta"),
+  subtotal: z.coerce.number().nonnegative("El subtotal no puede ser negativo"),
+  discount: z.coerce.number().nonnegative("El descuento no puede ser negativo").optional().default(0),
+  discountType: z.enum(["percentage", "fixed"]).optional().default("fixed"),
+  total: z.coerce.number().positive("El total debe ser mayor a 0"),
+  hasMixedPayment: z.boolean().optional().default(false),
+  payments: z.array(
+    z.object({
+      method: z.enum([
+        "EFECTIVO", 
+        "TARJETA_DEBITO", 
+        "TARJETA_CREDITO", 
+        "TRANSFERENCIA", 
+        "QR", 
+        "CUENTA_CORRIENTE",
+        "OTRO"
+      ]),
+      amount: z.coerce.number().positive("El monto debe ser mayor a 0"),
+      reference: z.string().optional()
+    })
+  ).optional()
 })
 
 export type CreateSaleInput = z.infer<typeof createSaleSchema>

@@ -177,6 +177,22 @@ export async function POST(request: NextRequest) {
     // Log temporal para debug
     logger.debug("Body recibido en sales API:", { body })
     
+    // Validar datos de entrada
+    const validationResult = createSaleSchema.safeParse(body)
+    if (!validationResult.success) {
+      logger.error("Validación fallida:", validationResult.error)
+      return NextResponse.json(
+        { 
+          error: "Datos inválidos",
+          details: validationResult.error.issues.map(e => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
+        },
+        { status: 400 }
+      )
+    }
+    
     const { 
       clientId, 
       paymentMethod, 
@@ -185,7 +201,7 @@ export async function POST(request: NextRequest) {
       discountType = "fixed",
       hasMixedPayment = false,
       payments = []
-    } = body
+    } = validationResult.data
 
     // Verificar stock antes de crear la venta
     for (const item of items) {
@@ -194,7 +210,7 @@ export async function POST(request: NextRequest) {
       
       const product = await prisma.product.findUnique({
         where: { id: item.productId },
-        select: { stock: true, name: true, isActive: true, businessId: true }
+        select: { stock: true, name: true, isActive: true, businessId: true, hasVariants: true }
       })
 
       if (!product || product.businessId !== businessId) {
@@ -211,11 +227,41 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      if (product.stock < item.quantity) {
-        return NextResponse.json(
-          { error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` },
-          { status: 400 }
-        )
+      // Validar stock para productos con variantes
+      if (item.variantId) {
+        const variant = await prisma.productVariant.findUnique({
+          where: { id: item.variantId },
+          select: { stock: true, name: true, isActive: true }
+        })
+
+        if (!variant) {
+          return NextResponse.json(
+            { error: `Variante no encontrada para ${product.name}` },
+            { status: 400 }
+          )
+        }
+
+        if (!variant.isActive) {
+          return NextResponse.json(
+            { error: `La variante ${variant.name} de ${product.name} está inactiva` },
+            { status: 400 }
+          )
+        }
+
+        if (variant.stock < item.quantity) {
+          return NextResponse.json(
+            { error: `Stock insuficiente para ${product.name} - ${variant.name}. Disponible: ${variant.stock}` },
+            { status: 400 }
+          )
+        }
+      } else {
+        // Validar stock para productos sin variantes
+        if (product.stock < item.quantity) {
+          return NextResponse.json(
+            { error: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` },
+            { status: 400 }
+          )
+        }
       }
     }
 

@@ -168,6 +168,11 @@ export function POSInterface() {
       return;
     }
 
+    if (payments.length === 0) {
+      alert("Debe agregar al menos un método de pago");
+      return;
+    }
+
     if (remaining > 0.01) {
       alert(`Faltan $${remaining.toFixed(2)} por pagar`);
       return;
@@ -177,10 +182,10 @@ export function POSInterface() {
 
     try {
       const saleData = {
-        clientId: selectedClient?.id,
+        clientId: selectedClient?.id || undefined,
         items: cart.map((item) => ({
           productId: item.productId,
-          variantId: item.variantId,
+          variantId: item.variantId || undefined,
           quantity: item.quantity,
           unitPrice: item.price,
           subtotal: item.subtotal,
@@ -194,6 +199,8 @@ export function POSInterface() {
         payments: payments.length > 1 ? payments : undefined,
       };
 
+      console.log("Enviando datos de venta:", saleData);
+
       const res = await fetch("/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -202,7 +209,8 @@ export function POSInterface() {
 
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.error || "Error al procesar la venta");
+        console.error("Error del servidor:", error);
+        throw new Error(error.error || error.details || "Error al procesar la venta");
       }
 
       const sale = await res.json();
@@ -212,6 +220,8 @@ export function POSInterface() {
       setPayments([]);
       setDiscount(0);
       setSelectedClient(null);
+      setShowPaymentDialog(false);
+      
       alert(`✅ Venta completada - Ticket #${sale.ticketNumber || sale.id.slice(-6)}`);
 
       // Imprimir ticket (opcional)
@@ -220,10 +230,9 @@ export function POSInterface() {
       }
     } catch (error: any) {
       console.error("Error al completar venta:", error);
-      alert(error.message);
+      alert(`Error: ${error.message}`);
     } finally {
       setIsProcessing(false);
-      setShowPaymentDialog(false);
     }
   };
 

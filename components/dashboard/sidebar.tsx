@@ -115,7 +115,10 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
         <nav className="space-y-1 p-2">
           {accessibleMenuItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              // Mejorar lógica de active: exacto o empieza con el href pero solo si no es /dashboard
+              const isActive = item.href === '/dashboard' 
+                ? pathname === '/dashboard' 
+                : pathname.startsWith(item.href);
 
               return (
                 <Link
