@@ -195,10 +195,10 @@ export function POSInterface() {
       }
 
       const saleData = {
-        clientId: selectedClient?.id || undefined,
+        clientId: selectedClient?.id || null,
         items: cart.map((item) => ({
           productId: item.productId,
-          variantId: item.variantId || undefined,
+          variantId: item.variantId || null,
           quantity: Number(item.quantity),
           unitPrice: Number(item.price),
           subtotal: Number(item.subtotal),
@@ -212,8 +212,8 @@ export function POSInterface() {
         payments: payments.length > 1 ? payments.map(p => ({
           method: p.method,
           amount: Number(p.amount.toFixed(2)),
-          reference: p.reference
-        })) : undefined,
+          reference: p.reference || null
+        })) : null,
       };
 
       console.log("Enviando datos de venta:", saleData);
