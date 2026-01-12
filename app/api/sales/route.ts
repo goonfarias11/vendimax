@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
           details: validationResult.error.issues.map(e => ({
             field: e.path.join('.'),
             message: e.message,
-            received: e.received
+            code: e.code
           }))
         },
         { status: 400 }
