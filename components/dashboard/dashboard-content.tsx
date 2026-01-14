@@ -85,22 +85,49 @@ export function DashboardContent() {
       
       const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
+      // Asegurar que sales sea array
+      const salesSafe = Array.isArray(sales) ? sales : [];
+
       // Filtrar ventas de hoy
-      const ventasHoy = sales.filter((s: any) => {
+      const ventasHoy = salesSafe.filter((s: any) => {
         const saleDate = new Date(s.createdAt);
         saleDate.setHours(0, 0, 0, 0);
         return saleDate.getTime() === today.getTime();
       });
 
       // Filtrar ventas del mes
-      const ventasMes = sales.filter((s: any) => {
+      const ventasMes = salesSafe.filter((s: any) => {
         const saleDate = new Date(s.createdAt);
         return saleDate >= startOfMonth;
       });
 
-      // Calcular totales
-      const totalHoy = ventasHoy.reduce((sum: number, s: any) => sum + Number(s.total), 0);
-      const totalMes = ventasMes.reduce((sum: number, s: any) => sum + Number(s.total), 0);
+      // Debug temporal - verificar datos
+      console.log('=== DEBUG TOTALES DE VENTAS ===');
+      console.log('Total de ventas:', salesSafe.length);
+      console.log('Ventas de hoy:', ventasHoy.length);
+      console.log('Ventas del mes:', ventasMes.length);
+      console.table(
+        ventasHoy.slice(0, 5).map((s: any) => ({
+          id: s.id?.slice(0, 8),
+          total: s.total,
+          parsed: safeNumber(s.total),
+          type: typeof s.total
+        }))
+      );
+
+      // Calcular totales con safeNumber (NUNCA usar Number directamente)
+      const totalHoy = ventasHoy.reduce(
+        (sum: number, s: any) => sum + safeNumber(s.total),
+        0
+      );
+      const totalMes = ventasMes.reduce(
+        (sum: number, s: any) => sum + safeNumber(s.total),
+        0
+      );
+
+      console.log('Total hoy calculado:', totalHoy);
+      console.log('Total mes calculado:', totalMes);
+      console.log('================================');
 
       // Productos con bajo stock
       const productosBajoStock = products.filter(
