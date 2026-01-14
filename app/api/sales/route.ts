@@ -10,6 +10,12 @@ import { requirePermission } from "@/lib/auth-middleware"
 
 export const runtime = 'nodejs'
 
+// Función para sanitizar números y evitar NaN/undefined en respuestas
+const safeNumber = (value: any): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
 // GET: Listar ventas con filtros avanzados
 export async function GET(request: NextRequest) {
   try {
@@ -106,20 +112,46 @@ export async function GET(request: NextRequest) {
       prisma.sale.count({ where })
     ])
 
-    // Formatear respuesta
-    const formattedSales = sales.map(sale => ({
-      id: sale.id,
-      ticketNumber: sale.ticketNumber,
-      createdAt: sale.createdAt,
-      client: sale.client,
-      user: sale.user,
-      subtotal: Number(sale.subtotal),
-      discount: Number(sale.discount),
-      total: Number(sale.total),
-      paymentMethod: sale.paymentMethod,
-      status: sale.status,
-      itemsCount: sale.saleItems.length
-    }))
+    // Sanitizar y formatear respuesta (tolerante a datos corruptos)
+    const formattedSales = sales.map(sale => {
+      try {
+        return {
+          id: sale.id,
+          ticketNumber: sale.ticketNumber,
+          createdAt: sale.createdAt,
+          client: sale.client,
+          user: sale.user,
+          subtotal: safeNumber(sale.subtotal),
+          discount: safeNumber(sale.discount),
+          total: safeNumber(sale.total),
+          paymentMethod: sale.paymentMethod,
+          status: sale.status,
+          itemsCount: sale.saleItems.length,
+          saleItems: sale.saleItems.map(item => ({
+            id: item.id,
+            quantity: safeNumber(item.quantity),
+            price: safeNumber(item.price)
+          }))
+        };
+      } catch (error) {
+        console.error(`⚠️ Error sanitizando venta ${sale.id}:`, error);
+        // Devolver venta con valores seguros si falla
+        return {
+          id: sale.id,
+          ticketNumber: sale.ticketNumber,
+          createdAt: sale.createdAt,
+          client: sale.client,
+          user: sale.user,
+          subtotal: 0,
+          discount: 0,
+          total: 0,
+          paymentMethod: sale.paymentMethod,
+          status: sale.status,
+          itemsCount: 0,
+          saleItems: []
+        };
+      }
+    });
 
     return NextResponse.json({
       sales: formattedSales,

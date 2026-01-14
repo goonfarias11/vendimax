@@ -16,6 +16,12 @@ type Sale = {
   estado: string;
 }
 
+// Helper para renderizar números de forma segura
+const safeNumber = (value: any): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
 export default function VentasPage() {
   const router = useRouter();
   const [filterStatus, setFilterStatus] = useState("Todos");
@@ -158,7 +164,7 @@ export default function VentasPage() {
         <div className="rounded-lg border bg-white p-4">
           <p className="text-sm text-gray-600">Ticket Promedio</p>
           <p className="text-2xl font-bold text-gray-900">
-            ${sales.length > 0 ? (sales.reduce((sum, s) => sum + s.total, 0) / sales.length).toFixed(0) : '0'}
+            ${sales.length > 0 ? safeNumber(sales.reduce((sum, s) => sum + safeNumber(s.total), 0) / sales.length).toFixed(0) : '0'}
           </p>
         </div>
       </div>

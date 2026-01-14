@@ -98,6 +98,16 @@ const statusIcons: Record<string, any> = {
   ANULADO: XCircle
 }
 
+// Helper para renderizar números de forma segura
+const safeNumber = (value: any): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const formatCurrency = (value: any): string => {
+  return safeNumber(value).toLocaleString();
+};
+
 export default function SalesHistoryPage() {
   const router = useRouter()
   const canView = usePermission('pos:access')
@@ -327,7 +337,7 @@ export default function SalesHistoryPage() {
         <Card className="p-4">
           <div className="text-sm text-gray-600">Monto Total</div>
           <div className="text-2xl font-bold">
-            ${filteredSales.reduce((sum, sale) => sum + sale.total, 0).toLocaleString()}
+            ${formatCurrency(filteredSales.reduce((sum, sale) => sum + safeNumber(sale.total), 0))}
           </div>
         </Card>
         <Card className="p-4">
@@ -400,7 +410,7 @@ export default function SalesHistoryPage() {
                       {sale.user.name}
                     </td>
                     <td className="px-6 py-4 font-medium">
-                      ${sale.total.toLocaleString()}
+                      ${formatCurrency(sale.total)}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       {paymentMethodLabels[sale.paymentMethod] || sale.paymentMethod}
@@ -529,7 +539,7 @@ export default function SalesHistoryPage() {
                     )}
                     <div className="flex justify-between text-lg font-bold border-t pt-2">
                       <span>Total:</span>
-                      <span>${selectedSale.total.toLocaleString()}</span>
+                      <span>${formatCurrency(selectedSale.total)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Método de pago:</span>
