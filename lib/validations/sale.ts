@@ -26,15 +26,15 @@ export const salePaymentSchema = z.object({
 });
 
 export const createSaleSchema = z.object({
-  clientId: z.string().optional(),
+  clientId: z.string().optional().nullable(),
   total: z.number().positive("El total debe ser positivo"),
   subtotal: z.number().positive("El subtotal debe ser positivo"),
   tax: z.number().min(0).default(0),
   discount: z.number().min(0).default(0),
-  discountType: z.enum(["percentage", "fixed"]).optional(),
+  discountType: z.enum(["percentage", "fixed"]).optional().default("fixed"),
   paymentMethod: paymentMethodSchema,
   hasMixedPayment: z.boolean().default(false),
   notes: z.string().optional(),
   items: z.array(saleItemSchema).min(1, "Debe incluir al menos un producto"),
-  payments: z.array(salePaymentSchema).optional(),
+  payments: z.array(salePaymentSchema).optional().nullable(),
 });
