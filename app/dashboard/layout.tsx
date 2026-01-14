@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopbar } from "@/components/dashboard/topbar";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -99,7 +100,11 @@ export default function DashboardLayout({
         <div className="print:hidden">
           <DashboardTopbar onMenuClick={() => setSidebarOpen(true)} />
         </div>
-        <main className="p-6 print:p-8">{children}</main>
+        <main className="p-6 print:p-8">
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+        </main>
       </div>
     </div>
   );

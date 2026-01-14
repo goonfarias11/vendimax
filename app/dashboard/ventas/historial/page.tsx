@@ -98,10 +98,23 @@ const statusIcons: Record<string, any> = {
   ANULADO: XCircle
 }
 
-// Helper para renderizar números de forma segura
+// Helpers para renderizar datos de forma segura (anti-crash)
 const safeNumber = (value: any): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
+};
+
+const safeArray = <T,>(value: any): T[] => {
+  return Array.isArray(value) ? value : [];
+};
+
+const safeString = (value: any): string => {
+  return value != null ? String(value) : '';
+};
+
+const safeDate = (value: any): Date => {
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? new Date() : date;
 };
 
 const formatCurrency = (value: any): string => {
@@ -151,13 +164,34 @@ export default function SalesHistoryPage() {
       if (statusFilter !== 'all') params.append('status', statusFilter)
       
       const response = await fetch(`/api/sales?${params}`)
-      if (!response.ok) throw new Error('Error al cargar ventas')
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       
       const data = await response.json()
-      setSales(data.sales || [])
+      
+      // Validar y sanitizar datos recibidos
+      const salesData = data.sales || data
+      const safeSales = safeArray<Sale>(salesData).map(sale => ({
+        id: safeString(sale?.id || ''),
+        ticketNumber: safeString(sale?.ticketNumber || '0'),
+        createdAt: safeString(sale?.createdAt || new Date().toISOString()),
+        client: sale?.client || null,
+        user: sale?.user || { id: '', name: 'Desconocido', email: '' },
+        subtotal: safeNumber(sale?.subtotal),
+        discount: safeNumber(sale?.discount),
+        total: safeNumber(sale?.total),
+        paymentMethod: safeString(sale?.paymentMethod || 'EFECTIVO'),
+        status: safeString(sale?.status || 'COMPLETADO'),
+        itemsCount: safeNumber(sale?.itemsCount)
+      }))
+      
+      setSales(safeSales)
     } catch (error) {
-      toast.error('Error al cargar ventas')
-      console.error(error)
+      console.error('❌ Error al cargar ventas:', error)
+      toast.error('Error al cargar ventas. Mostrando datos vacíos.')
+      setSales([]) // Mostrar lista vacía en lugar de romper
     } finally {
       setLoading(false)
     }
@@ -168,10 +202,12 @@ export default function SalesHistoryPage() {
       const response = await fetch('/api/users')
       if (response.ok) {
         const data = await response.json()
-        setUsers(data.users || [])
+        const usersData = data.users || data
+        setUsers(safeArray(usersData))
       }
     } catch (error) {
       console.error('Error loading users:', error)
+      setUsers([]) // Fallback a array vacío
     }
   }
 
@@ -179,12 +215,46 @@ export default function SalesHistoryPage() {
     try {
       setLoadingDetail(true)
       const response = await fetch(`/api/sales/${saleId}`)
-      if (!response.ok) throw new Error('Error al cargar detalle')
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       
       const data = await response.json()
-      setSelectedSale(data)
+      
+      // Sanitizar datos del detalle
+      const safeDetail: SaleDetail = {
+        id: safeString(data?.id),
+        ticketNumber: safeString(data?.ticketNumber),
+        createdAt: safeString(data?.createdAt),
+        client: data?.client || null,
+        user: data?.user || { id: '', name: 'Desconocido', email: '' },
+        subtotal: safeNumber(data?.subtotal),
+        discount: safeNumber(data?.discount),
+        total: safeNumber(data?.total),
+        paymentMethod: safeString(data?.paymentMethod || 'EFECTIVO'),
+        status: safeString(data?.status || 'COMPLETADO'),
+        saleItems: safeArray(data?.saleItems).map((item: any) => ({
+          id: safeString(item?.id),
+          quantity: safeNumber(item?.quantity),
+          price: safeNumber(item?.price),
+          subtotal: safeNumber(item?.subtotal),
+          product: {
+            id: safeString(item?.product?.id),
+            name: safeString(item?.product?.name || 'Producto desconocido'),
+            sku: safeString(item?.product?.sku || 'N/A'),
+            price: safeNumber(item?.product?.price),
+            cost: safeNumber(item?.product?.cost)
+          }
+        })),
+        cashMovement: data?.cashMovement || null
+      }
+      
+      setSelectedSale(safeDetail)
     } catch (error) {
+      console.error('❌ Error al cargar detalle:', error)
       toast.error('Error al cargar detalle de venta')
+      setSelectedSale(null)
     } finally {
       setLoadingDetail(false)
     }
@@ -221,11 +291,18 @@ export default function SalesHistoryPage() {
     }
   }
 
-  const filteredSales = sales.filter(sale =>
-    sale.ticketNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sale.client?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sale.user.name.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredSales = safeArray<Sale>(sales).filter((sale: Sale) => {
+    try {
+      const searchLower = searchTerm.toLowerCase()
+      const ticketMatch = safeString(sale?.ticketNumber).toLowerCase().includes(searchLower)
+      const clientMatch = safeString(sale?.client?.name).toLowerCase().includes(searchLower)
+      const userMatch = safeString(sale?.user?.name).toLowerCase().includes(searchLower)
+      return ticketMatch || clientMatch || userMatch
+    } catch (error) {
+      console.error('⚠️ Error filtrando venta:', error)
+      return false
+    }
+  })
 
   if (!canView) {
     return (
@@ -529,12 +606,12 @@ export default function SalesHistoryPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Subtotal:</span>
-                      <span className="font-medium">${selectedSale.subtotal.toLocaleString()}</span>
+                      <span className="font-medium">${formatCurrency(selectedSale.subtotal)}</span>
                     </div>
-                    {selectedSale.discount > 0 && (
+                    {safeNumber(selectedSale.discount) > 0 && (
                       <div className="flex justify-between text-red-600">
                         <span>Descuento:</span>
-                        <span>-${selectedSale.discount.toLocaleString()}</span>
+                        <span>-${formatCurrency(selectedSale.discount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-lg font-bold border-t pt-2">
