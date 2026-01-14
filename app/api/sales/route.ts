@@ -100,8 +100,17 @@ export async function GET(request: NextRequest) {
           saleItems: {
             select: {
               id: true,
+              productId: true,
               quantity: true,
-              price: true
+              price: true,
+              subtotal: true,
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true
+                }
+              }
             }
           }
         },
@@ -142,8 +151,11 @@ export async function GET(request: NextRequest) {
           itemsCount: sale.saleItems.length,
           saleItems: sale.saleItems.map(item => ({
             id: item.id,
+            productId: item.productId,
             quantity: safeNumber(item.quantity),
-            price: safeNumber(item.price)
+            price: safeNumber(item.price),
+            subtotal: safeNumber(item.subtotal),
+            product: item.product
           }))
         };
       } catch (error) {
