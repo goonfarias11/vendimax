@@ -108,9 +108,9 @@ export function POSInterface() {
   };
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
-    const itemPrice = variant ? (variant.salePrice || 0) : (product.salePrice || 0);
+    const itemPrice = Number(variant ? (variant.salePrice || 0) : (product.salePrice || 0));
     
-    if (itemPrice <= 0) {
+    if (itemPrice <= 0 || isNaN(itemPrice)) {
       alert("Error: El producto no tiene un precio válido");
       return;
     }
@@ -127,9 +127,9 @@ export function POSInterface() {
         productId: product.id,
         variantId: variant?.id,
         name: variant ? `${product.name} - ${variant.name}` : product.name,
-        price: itemPrice,
+        price: Number(itemPrice) || 0,
         quantity: 1,
-        subtotal: itemPrice,
+        subtotal: Number(itemPrice) || 0,
       };
       setCart([...cart, newItem]);
     }
@@ -148,7 +148,7 @@ export function POSInterface() {
     setCart(
       cart.map((item) =>
         item.productId === productId && item.variantId === variantId
-          ? { ...item, quantity, subtotal: item.price * quantity }
+          ? { ...item, quantity: Number(quantity) || 1, subtotal: Number(item.price || 0) * Number(quantity || 1) }
           : item
       )
     );
@@ -199,19 +199,19 @@ export function POSInterface() {
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId || null,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.price),
-          subtotal: Number(item.subtotal),
+          quantity: Number(item.quantity) || 1,
+          unitPrice: Number(item.price) || 0,
+          subtotal: Number(item.subtotal) || 0,
         })),
-        subtotal: Number(subtotal.toFixed(2)),
-        discount: Number(discountAmount.toFixed(2)),
+        subtotal: Number(subtotal?.toFixed(2)) || 0,
+        discount: Number(discountAmount?.toFixed(2)) || 0,
         discountType,
-        total: Number(total.toFixed(2)),
+        total: Number(total?.toFixed(2)) || 0,
         paymentMethod: payments.length > 1 ? "MIXTO" : payments[0].method,
         hasMixedPayment: payments.length > 1,
         payments: payments.length > 1 ? payments.map(p => ({
           method: p.method,
-          amount: Number(p.amount.toFixed(2)),
+          amount: Number(p.amount?.toFixed(2)) || 0,
           reference: p.reference || null
         })) : null,
       };

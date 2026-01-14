@@ -218,6 +218,23 @@ export async function POST(request: NextRequest) {
       payments = []
     } = validationResult.data
 
+    // Recalcular y validar totales en el backend
+    const calculatedSubtotal = items.reduce((sum: number, item: any) => {
+      const itemSubtotal = Number(item.unitPrice || 0) * Number(item.quantity || 1)
+      return sum + itemSubtotal
+    }, 0)
+    
+    const calculatedDiscountAmount = discountType === "percentage" 
+      ? (calculatedSubtotal * Number(discount || 0)) / 100 
+      : Number(discount || 0)
+    
+    const calculatedTotal = Math.max(0, calculatedSubtotal - calculatedDiscountAmount)
+    
+    console.log("=== CÁLCULOS DEL BACKEND ===")
+    console.log("Subtotal calculado:", calculatedSubtotal)
+    console.log("Descuento calculado:", calculatedDiscountAmount)
+    console.log("Total calculado:", calculatedTotal)
+
     // Verificar stock antes de crear la venta
     for (const item of items) {
       // Verificar que el producto pertenezca al negocio
@@ -280,17 +297,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Calcular total
-    const subtotal = items.reduce((sum: number, item: any) => {
-      return sum + (item.unitPrice * item.quantity)
-    }, 0)
-    
-    // Aplicar descuento
-    const discountAmount = discountType === "percentage" 
-      ? (subtotal * discount) / 100 
-      : discount
-    
-    const total = Math.max(0, subtotal - discountAmount)
+    // Usar los valores calculados en el backend para mayor confiabilidad
+    const subtotal = calculatedSubtotal
+    const discountAmount = calculatedDiscountAmount
+    const total = calculatedTotal
 
     // Generar número de ticket
     const lastSale = await prisma.sale.findFirst({
