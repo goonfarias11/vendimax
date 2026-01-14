@@ -33,17 +33,17 @@ async function sanitizeSales() {
       const sanitizedDiscount = safeNumber(sale.discount);
       const sanitizedTotal = safeNumber(sale.total);
 
-      if (!Number.isFinite(Number(sale.subtotal)) || sale.subtotal !== sanitizedSubtotal) {
+      if (!Number.isFinite(Number(sale.subtotal)) || Number(sale.subtotal) !== sanitizedSubtotal) {
         updates.subtotal = sanitizedSubtotal;
         needsUpdate = true;
       }
 
-      if (!Number.isFinite(Number(sale.discount)) || sale.discount !== sanitizedDiscount) {
+      if (!Number.isFinite(Number(sale.discount)) || Number(sale.discount) !== sanitizedDiscount) {
         updates.discount = sanitizedDiscount;
         needsUpdate = true;
       }
 
-      if (!Number.isFinite(Number(sale.total)) || sale.total !== sanitizedTotal) {
+      if (!Number.isFinite(Number(sale.total)) || Number(sale.total) !== sanitizedTotal) {
         updates.total = sanitizedTotal;
         needsUpdate = true;
       }
@@ -87,12 +87,12 @@ async function sanitizeSales() {
         const sanitizedPrice = safeNumber(item.price);
         const sanitizedSubtotal = safeNumber(item.subtotal);
 
-        if (!Number.isFinite(Number(item.quantity)) || item.quantity !== sanitizedQty) {
+        if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) !== sanitizedQty) {
           itemUpdates.quantity = sanitizedQty || 1;
           itemNeedsUpdate = true;
         }
 
-        if (!Number.isFinite(Number(item.price)) || item.price !== sanitizedPrice) {
+        if (!Number.isFinite(Number(item.price)) || Number(item.price) !== sanitizedPrice) {
           itemUpdates.price = sanitizedPrice;
           itemNeedsUpdate = true;
         }
