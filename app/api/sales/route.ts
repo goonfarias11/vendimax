@@ -115,15 +115,28 @@ export async function GET(request: NextRequest) {
     // Sanitizar y formatear respuesta (tolerante a datos corruptos)
     const formattedSales = sales.map(sale => {
       try {
+        const sanitizedTotal = safeNumber(sale.total);
+        const sanitizedSubtotal = safeNumber(sale.subtotal);
+        
+        // Debug: Log si hay valores corruptos
+        if (sanitizedTotal === 0 && sale.saleItems.length > 0) {
+          console.warn(`⚠️ Venta ${sale.id} tiene total 0 pero ${sale.saleItems.length} items`);
+          console.log('Datos originales:', { 
+            total: sale.total, 
+            subtotal: sale.subtotal,
+            type: typeof sale.total 
+          });
+        }
+        
         return {
           id: sale.id,
           ticketNumber: sale.ticketNumber,
           createdAt: sale.createdAt,
           client: sale.client,
           user: sale.user,
-          subtotal: safeNumber(sale.subtotal),
+          subtotal: sanitizedSubtotal,
           discount: safeNumber(sale.discount),
-          total: safeNumber(sale.total),
+          total: sanitizedTotal,
           paymentMethod: sale.paymentMethod,
           status: sale.status,
           itemsCount: sale.saleItems.length,

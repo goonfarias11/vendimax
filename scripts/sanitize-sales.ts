@@ -49,7 +49,7 @@ async function sanitizeSales() {
       }
 
       // Recalcular totales desde items si están corruptos
-      if (needsUpdate || updates.total === 0) {
+      if (needsUpdate || updates.total === 0 || sanitizedTotal === 0) {
         const calculatedSubtotal = sale.saleItems.reduce((sum, item) => {
           const qty = safeNumber(item.quantity);
           const price = safeNumber(item.price);
@@ -65,6 +65,7 @@ async function sanitizeSales() {
         console.log(`⚠️  Venta corrupta encontrada: ${sale.id}`);
         console.log(`   Ticket: ${sale.ticketNumber}`);
         console.log(`   Total original: ${sale.total} → Recalculado: ${calculatedTotal}`);
+        console.log(`   Subtotal original: ${sale.subtotal} → Recalculado: ${calculatedSubtotal}`);
         corruptedCount++;
       }
 
