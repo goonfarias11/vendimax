@@ -13,15 +13,16 @@ export const paymentMethodSchema = z.enum([
 
 export const saleItemSchema = z.object({
   productId: z.string().min(1, "Product ID es requerido"),
+  variantId: z.string().optional().nullable(),
   quantity: z.number().int().positive("La cantidad debe ser positiva"),
-  price: z.number().positive("El precio debe ser positivo"),
+  unitPrice: z.number().positive("El precio debe ser positivo"),
   subtotal: z.number().positive("El subtotal debe ser positivo"),
 });
 
 export const salePaymentSchema = z.object({
-  paymentMethod: paymentMethodSchema,
+  method: paymentMethodSchema,
   amount: z.number().positive("El monto debe ser positivo"),
-  reference: z.string().optional(),
+  reference: z.string().optional().nullable(),
 });
 
 export const createSaleSchema = z.object({

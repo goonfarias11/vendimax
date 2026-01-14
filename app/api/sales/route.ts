@@ -1,7 +1,7 @@
 import { NextResponse, NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
-import { createSaleSchema } from "@/lib/validations"
+import { createSaleSchema } from "@/lib/validations/sale"
 import { salesRateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
 import { z } from "zod"
