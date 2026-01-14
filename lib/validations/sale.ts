@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// Transformador seguro anti-NaN
+const safeNumberTransform = z.any()
+  .transform(v => {
+    const num = Number(v);
+    return Number.isFinite(num) ? num : 0;
+  })
+  .refine(val => Number.isFinite(val), { message: "Must be a valid number" });
+
 export const paymentMethodSchema = z.enum([
   "EFECTIVO",
   "TARJETA_DEBITO",
@@ -14,23 +22,23 @@ export const paymentMethodSchema = z.enum([
 export const saleItemSchema = z.object({
   productId: z.string().min(1, "Product ID es requerido"),
   variantId: z.string().optional().nullable(),
-  quantity: z.coerce.number().int().positive("La cantidad debe ser positiva").transform(v => Number(v) || 1),
-  unitPrice: z.coerce.number().positive("El precio debe ser positivo").transform(v => Number(v) || 0),
-  subtotal: z.coerce.number().positive("El subtotal debe ser positivo").transform(v => Number(v) || 0),
+  quantity: safeNumberTransform.refine(v => v > 0, { message: "La cantidad debe ser positiva" }),
+  unitPrice: safeNumberTransform.refine(v => v >= 0, { message: "El precio debe ser mayor o igual a 0" }),
+  subtotal: safeNumberTransform.refine(v => v >= 0, { message: "El subtotal debe ser mayor o igual a 0" }),
 });
 
 export const salePaymentSchema = z.object({
   method: paymentMethodSchema,
-  amount: z.number().positive("El monto debe ser positivo"),
+  amount: safeNumberTransform.refine(v => v >= 0, { message: "El monto debe ser positivo" }),
   reference: z.string().optional().nullable(),
 });
 
 export const createSaleSchema = z.object({
   clientId: z.string().optional().nullable(),
-  total: z.coerce.number().positive("El total debe ser positivo").transform(v => Number(v) || 0),
-  subtotal: z.coerce.number().positive("El subtotal debe ser positivo").transform(v => Number(v) || 0),
-  tax: z.coerce.number().min(0).default(0).transform(v => Number(v) || 0),
-  discount: z.coerce.number().min(0).default(0).transform(v => Number(v) || 0),
+  total: safeNumberTransform.refine(v => v >= 0, { message: "El total debe ser positivo" }),
+  subtotal: safeNumberTransform.refine(v => v >= 0, { message: "El subtotal debe ser positivo" }),
+  tax: safeNumberTransform,
+  discount: safeNumberTransform,
   discountType: z.enum(["percentage", "fixed"]).optional().default("fixed"),
   paymentMethod: paymentMethodSchema,
   hasMixedPayment: z.boolean().default(false),

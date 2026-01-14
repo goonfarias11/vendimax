@@ -51,6 +51,32 @@ interface Payment {
   reference?: string;
 }
 
+// Función para sanitizar números y evitar NaN
+const safeNumber = (value: any): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+// Función para sanitizar todo el payload de venta
+const sanitizeSalePayload = (data: any) => {
+  return {
+    ...data,
+    subtotal: safeNumber(data.subtotal),
+    discount: safeNumber(data.discount),
+    total: safeNumber(data.total),
+    items: (data.items || []).map((item: any) => ({
+      ...item,
+      quantity: safeNumber(item.quantity) || 1,
+      unitPrice: safeNumber(item.unitPrice),
+      subtotal: safeNumber(item.quantity) * safeNumber(item.unitPrice),
+    })),
+    payments: data.payments ? data.payments.map((p: any) => ({
+      ...p,
+      amount: safeNumber(p.amount),
+    })) : null,
+  };
+};
+
 export function POSInterface() {
   const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,13 +96,15 @@ export function POSInterface() {
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Calcular totales
-  const subtotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
-  const discountAmount = discountType === "percentage" ? (subtotal * discount) / 100 : discount;
-  const total = Math.max(0, subtotal - discountAmount);
-  const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = total - totalPaid;
-  const change = totalPaid > total ? totalPaid - total : 0;
+  // Calcular totales con protección contra NaN
+  const subtotal = safeNumber(cart.reduce((sum, item) => sum + safeNumber(item.subtotal), 0));
+  const discountAmount = discountType === "percentage" 
+    ? safeNumber((subtotal * safeNumber(discount)) / 100) 
+    : safeNumber(discount);
+  const total = Math.max(0, safeNumber(subtotal - discountAmount));
+  const totalPaid = safeNumber(payments.reduce((sum, p) => sum + safeNumber(p.amount), 0));
+  const remaining = safeNumber(total - totalPaid);
+  const change = totalPaid > total ? safeNumber(totalPaid - total) : 0;
 
   // Buscar productos
   useEffect(() => {
@@ -108,9 +136,9 @@ export function POSInterface() {
   };
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
-    const itemPrice = Number(variant ? (variant.salePrice || 0) : (product.salePrice || 0));
+    const itemPrice = safeNumber(variant ? variant.salePrice : product.salePrice);
     
-    if (itemPrice <= 0 || isNaN(itemPrice)) {
+    if (itemPrice <= 0) {
       alert("Error: El producto no tiene un precio válido");
       return;
     }
@@ -127,9 +155,9 @@ export function POSInterface() {
         productId: product.id,
         variantId: variant?.id,
         name: variant ? `${product.name} - ${variant.name}` : product.name,
-        price: Number(itemPrice) || 0,
+        price: itemPrice,
         quantity: 1,
-        subtotal: Number(itemPrice) || 0,
+        subtotal: itemPrice,
       };
       setCart([...cart, newItem]);
     }
@@ -140,7 +168,8 @@ export function POSInterface() {
   };
 
   const updateQuantity = (productId: string, quantity: number, variantId?: string) => {
-    if (quantity <= 0) {
+    const safeQty = safeNumber(quantity);
+    if (safeQty <= 0) {
       removeFromCart(productId, variantId);
       return;
     }
@@ -148,7 +177,7 @@ export function POSInterface() {
     setCart(
       cart.map((item) =>
         item.productId === productId && item.variantId === variantId
-          ? { ...item, quantity: Number(quantity) || 1, subtotal: Number(item.price || 0) * Number(quantity || 1) }
+          ? { ...item, quantity: safeQty, subtotal: safeNumber(item.price) * safeQty }
           : item
       )
     );
@@ -188,35 +217,34 @@ export function POSInterface() {
     setIsProcessing(true);
 
     try {
-      // Validar que tengamos números válidos antes de enviar
-      if (isNaN(subtotal) || isNaN(total) || subtotal < 0 || total < 0) {
-        alert("Error: Los totales calculados no son válidos. Por favor, recarga la página.");
-        return;
-      }
-
-      const saleData = {
+      // Preparar datos sin sanitizar
+      const rawSaleData = {
         clientId: selectedClient?.id || null,
         items: cart.map((item) => ({
           productId: item.productId,
           variantId: item.variantId || null,
-          quantity: Number(item.quantity) || 1,
-          unitPrice: Number(item.price) || 0,
-          subtotal: Number(item.subtotal) || 0,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          subtotal: item.subtotal,
         })),
-        subtotal: Number(subtotal?.toFixed(2)) || 0,
-        discount: Number(discountAmount?.toFixed(2)) || 0,
+        subtotal: subtotal,
+        discount: discountAmount,
         discountType,
-        total: Number(total?.toFixed(2)) || 0,
+        total: total,
         paymentMethod: payments.length > 1 ? "MIXTO" : payments[0].method,
         hasMixedPayment: payments.length > 1,
         payments: payments.length > 1 ? payments.map(p => ({
           method: p.method,
-          amount: Number(p.amount?.toFixed(2)) || 0,
+          amount: p.amount,
           reference: p.reference || null
         })) : null,
       };
 
-      console.log("Enviando datos de venta:", saleData);
+      // Sanitizar payload antes de enviar
+      const saleData = sanitizeSalePayload(rawSaleData);
+
+      console.log("Datos antes de sanitizar:", rawSaleData);
+      console.log("Datos sanitizados:", saleData);
 
       const res = await fetch("/api/sales", {
         method: "POST",

@@ -218,22 +218,46 @@ export async function POST(request: NextRequest) {
       payments = []
     } = validationResult.data
 
-    // Recalcular y validar totales en el backend
+    // Función segura para validar y convertir números (anti-NaN)
+    const safeNumber = (value: any): number => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    // Recalcular y validar totales en el backend (nunca confiar en el frontend)
     const calculatedSubtotal = items.reduce((sum: number, item: any) => {
-      const itemSubtotal = Number(item.unitPrice || 0) * Number(item.quantity || 1)
-      return sum + itemSubtotal
-    }, 0)
+      const qty = safeNumber(item.quantity) || 1;
+      const price = safeNumber(item.unitPrice);
+      const itemSubtotal = price * qty;
+      
+      // Validar que no haya NaN
+      if (!Number.isFinite(itemSubtotal)) {
+        console.error(`⚠️ Item con valores inválidos:`, item);
+        return sum;
+      }
+      
+      return sum + itemSubtotal;
+    }, 0);
     
     const calculatedDiscountAmount = discountType === "percentage" 
-      ? (calculatedSubtotal * Number(discount || 0)) / 100 
-      : Number(discount || 0)
+      ? safeNumber((calculatedSubtotal * safeNumber(discount)) / 100)
+      : safeNumber(discount);
     
-    const calculatedTotal = Math.max(0, calculatedSubtotal - calculatedDiscountAmount)
+    const calculatedTotal = Math.max(0, safeNumber(calculatedSubtotal - calculatedDiscountAmount));
     
-    console.log("=== CÁLCULOS DEL BACKEND ===")
-    console.log("Subtotal calculado:", calculatedSubtotal)
-    console.log("Descuento calculado:", calculatedDiscountAmount)
-    console.log("Total calculado:", calculatedTotal)
+    console.log("=== CÁLCULOS DEL BACKEND (ANTI-NaN) ===");
+    console.log("Subtotal calculado:", calculatedSubtotal, "isFinite:", Number.isFinite(calculatedSubtotal));
+    console.log("Descuento calculado:", calculatedDiscountAmount, "isFinite:", Number.isFinite(calculatedDiscountAmount));
+    console.log("Total calculado:", calculatedTotal, "isFinite:", Number.isFinite(calculatedTotal));
+    
+    // Validación final: si algún valor es NaN, rechazar
+    if (!Number.isFinite(calculatedSubtotal) || !Number.isFinite(calculatedTotal)) {
+      console.error("❌ ERROR: Cálculos resultaron en NaN");
+      return NextResponse.json(
+        { error: "Error en los cálculos. Los valores numéricos no son válidos." },
+        { status: 400 }
+      );
+    }
 
     // Verificar stock antes de crear la venta
     for (const item of items) {
