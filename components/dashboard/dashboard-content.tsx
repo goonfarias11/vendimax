@@ -7,6 +7,16 @@ import { DollarSign, ShoppingCart, TrendingUp, Package, AlertTriangle, Eye } fro
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
+// Helpers para evitar NaN en cálculos
+const safeNumber = (value: any): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const safeArray = <T,>(value: any): T[] => {
+  return Array.isArray(value) ? value : [];
+};
+
 type DashboardStats = {
   ventasHoy: number;
   ticketsHoy: number;
@@ -115,12 +125,12 @@ export function DashboardContent() {
       // Productos más vendidos (contar items en ventas)
       const productSalesCount: { [key: string]: { name: string; count: number; total: number } } = {};
       
-      sales.forEach((sale: any) => {
-        sale.saleItems?.forEach((item: any) => {
-          const productId = item.productId;
+      safeArray(sales).forEach((sale: any) => {
+        safeArray(sale.saleItems).forEach((item: any) => {
+          const productId = item.productId || 'unknown';
           const productName = item.product?.name || "Producto";
-          const quantity = Number(item.quantity);
-          const subtotal = Number(item.subtotal);
+          const quantity = safeNumber(item.quantity);
+          const subtotal = safeNumber(item.subtotal);
 
           if (!productSalesCount[productId]) {
             productSalesCount[productId] = { name: productName, count: 0, total: 0 };
@@ -162,7 +172,7 @@ export function DashboardContent() {
     {
       key: "total",
       header: "Total",
-      cell: (row: any) => `$${row.total.toLocaleString()}`,
+      cell: (row: any) => `$${safeNumber(row.total).toLocaleString()}`,
     },
   ];
 
@@ -172,7 +182,7 @@ export function DashboardContent() {
     {
       key: "total",
       header: "Total",
-      cell: (row: any) => `$${row.total.toLocaleString()}`,
+      cell: (row: any) => `$${safeNumber(row.total).toLocaleString()}`,
     },
   ];
 
