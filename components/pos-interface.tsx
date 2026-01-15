@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { TicketPrinter } from "@/components/pos/ticket-printer";
 
 interface Product {
   id: string;
@@ -93,8 +94,10 @@ export function POSInterface() {
     amount: 0,
   });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [completedSale, setCompletedSale] = useState<any>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const ticketRef = useRef<HTMLDivElement>(null);
 
   // Calcular totales con protección contra NaN
   const subtotal = safeNumber(cart.reduce((sum, item) => sum + safeNumber(item.subtotal), 0));
@@ -270,6 +273,22 @@ export function POSInterface() {
 
       const sale = await res.json();
 
+      // Preparar datos para ticket
+      const ticketData = {
+        ...sale,
+        items: cart.map(item => ({
+          quantity: item.quantity,
+          product: { name: item.name },
+          price: item.price,
+          subtotal: item.subtotal
+        })),
+        client: selectedClient,
+        payments: payments.length > 1 ? payments : null,
+        hasMixedPayment: payments.length > 1
+      };
+
+      setCompletedSale(ticketData);
+
       // Limpiar todo
       setCart([]);
       setPayments([]);
@@ -281,7 +300,9 @@ export function POSInterface() {
 
       // Imprimir ticket (opcional)
       if (confirm("¿Desea imprimir el ticket?")) {
-        printTicket(sale);
+        printTicket();
+      } else {
+        setCompletedSale(null);
       }
     } catch (error: any) {
       console.error("Error al completar venta:", error);
@@ -291,9 +312,11 @@ export function POSInterface() {
     }
   };
 
-  const printTicket = (sale: any) => {
-    // Implementar lógica de impresión
-    window.print();
+  const printTicket = () => {
+    setTimeout(() => {
+      window.print();
+      setCompletedSale(null);
+    }, 100);
   };
 
   const getPaymentMethodLabel = (method: string) => {
@@ -695,6 +718,11 @@ export function POSInterface() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Ticket Printer Component */}
+      {completedSale && (
+        <TicketPrinter ref={ticketRef} sale={completedSale} type="ticket" />
+      )}
     </div>
   );
 }

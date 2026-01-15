@@ -45,8 +45,14 @@ interface Sale {
   discount: number
   total: number
   paymentMethod: string
+  hasMixedPayment?: boolean
   status: string
   itemsCount: number
+  payments?: Array<{
+    method: string
+    amount: number
+    reference?: string
+  }>
 }
 
 interface SaleDetail {
@@ -59,6 +65,7 @@ interface SaleDetail {
   discount: number
   total: number
   paymentMethod: string
+  hasMixedPayment?: boolean
   status: string
   saleItems: Array<{
     id: string
@@ -72,6 +79,11 @@ interface SaleDetail {
       price: number
       cost: number
     }
+  }>
+  payments?: Array<{
+    method: string
+    amount: number
+    reference?: string | null
   }>
   cashMovement: any
 }

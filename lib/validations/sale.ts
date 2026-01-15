@@ -45,4 +45,24 @@ export const createSaleSchema = z.object({
   notes: z.string().optional(),
   items: z.array(saleItemSchema).min(1, "Debe incluir al menos un producto"),
   payments: z.array(salePaymentSchema).optional().nullable(),
-});
+  documentType: z.enum(["ticket", "invoice"]).optional().default("ticket"),
+}).refine(
+  (data) => {
+    // Si tiene pagos mixtos, validar la suma
+    if (data.hasMixedPayment && data.payments && data.payments.length > 0) {
+      // Validar que tenga entre 1 y 2 pagos
+      if (data.payments.length > 2) {
+        return false;
+      }
+      // Validar que la suma de pagos sea igual al total (con tolerancia de centavos)
+      const paymentsTotal = data.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const diff = Math.abs(paymentsTotal - (Number(data.total) || 0));
+      return diff < 0.01; // Tolerancia de 1 centavo
+    }
+    return true;
+  },
+  {
+    message: "La suma de los pagos debe ser igual al total de la venta",
+    path: ["payments"],
+  }
+);

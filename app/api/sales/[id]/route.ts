@@ -54,6 +54,14 @@ export async function GET(
             }
           }
         },
+        salePayments: {
+          select: {
+            id: true,
+            paymentMethod: true,
+            amount: true,
+            reference: true
+          }
+        },
         client: {
           select: {
             id: true,

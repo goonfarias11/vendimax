@@ -112,6 +112,14 @@ export async function GET(request: NextRequest) {
                 }
               }
             }
+          },
+          salePayments: {
+            select: {
+              id: true,
+              paymentMethod: true,
+              amount: true,
+              reference: true
+            }
           }
         },
         orderBy: { createdAt: 'desc' },
@@ -147,6 +155,7 @@ export async function GET(request: NextRequest) {
           discount: safeNumber(sale.discount),
           total: sanitizedTotal,
           paymentMethod: sale.paymentMethod,
+          hasMixedPayment: sale.hasMixedPayment,
           status: sale.status,
           itemsCount: sale.saleItems.length,
           saleItems: sale.saleItems.map(item => ({
@@ -156,7 +165,12 @@ export async function GET(request: NextRequest) {
             price: safeNumber(item.price),
             subtotal: safeNumber(item.subtotal),
             product: item.product
-          }))
+          })),
+          payments: sale.salePayments?.map(p => ({
+            method: p.paymentMethod,
+            amount: safeNumber(p.amount),
+            reference: p.reference
+          })) || null
         };
       } catch (error) {
         console.error(`⚠️ Error sanitizando venta ${sale.id}:`, error);
