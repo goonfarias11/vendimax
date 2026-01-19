@@ -198,8 +198,7 @@ export default function MiCajaPage() {
           Diferencia: ${differenceText}${formatCurrency(data.summary.cashDifference)}
           ${requiresAuth ? '\nSe requiere autorización de supervisor' : ''}
         `,
-        variant: data.summary.cashDifference === 0 ? 'default' : requiresAuth ? 'destructive' : 'default',
-        duration: 8000
+        variant: data.summary.cashDifference === 0 ? 'default' : requiresAuth ? 'destructive' : 'default'
       })
 
       setShowCloseModal(false)
