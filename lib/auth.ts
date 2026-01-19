@@ -94,11 +94,14 @@ export const authConfig = {
   },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   session: {
     strategy: "jwt",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+  basePath: "/api/auth",
 } satisfies NextAuthConfig
 
 export const authOptions = authConfig

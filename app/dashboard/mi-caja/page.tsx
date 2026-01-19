@@ -157,6 +157,17 @@ export default function MiCajaPage() {
       return
     }
 
+    // Validar observaciones si hay diferencia significativa
+    const difference = parseFloat(closingAmount) - currentCash!.stats.expectedAmount
+    if (Math.abs(difference) >= 10 && (!closingNotes || closingNotes.trim().length === 0)) {
+      toast({
+        title: 'Observaciones Requeridas',
+        description: 'Debes explicar la diferencia de efectivo cuando es mayor o igual a $10',
+        variant: 'destructive'
+      })
+      return
+    }
+
     try {
       setActionLoading(true)
       const response = await fetch('/api/cash/register/close', {
@@ -176,10 +187,19 @@ export default function MiCajaPage() {
 
       const data = await response.json()
 
+      // Mostrar mensaje de éxito con información detallada
+      const differenceText = data.summary.cashDifference >= 0 ? '+' : ''
+      const requiresAuth = data.summary.requiresAuthorization
+
       toast({
-        title: 'Caja Cerrada',
-        description: `Diferencia: ${data.summary.difference >= 0 ? '+' : ''}${formatCurrency(data.summary.difference)}`,
-        variant: data.summary.difference === 0 ? 'default' : 'destructive'
+        title: data.summary.cashDifference === 0 ? '✅ Caja Cerrada Correctamente' : requiresAuth ? '⚠️ Caja Cerrada - Requiere Autorización' : '✅ Caja Cerrada',
+        description: `
+          ${data.summary.salesCount} ventas · ${formatCurrency(data.summary.totalSales)}
+          Diferencia: ${differenceText}${formatCurrency(data.summary.cashDifference)}
+          ${requiresAuth ? '\nSe requiere autorización de supervisor' : ''}
+        `,
+        variant: data.summary.cashDifference === 0 ? 'default' : requiresAuth ? 'destructive' : 'default',
+        duration: 8000
       })
 
       setShowCloseModal(false)
@@ -447,23 +467,75 @@ export default function MiCajaPage() {
 
       {/* Modal de cierre */}
       {showCloseModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6 m-4">
-            <h2 className="text-2xl font-bold mb-4">Cerrar Caja</h2>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto">
+          <Card className="w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold mb-6">Cierre de Caja - Resumen del Turno</h2>
             
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Resumen general */}
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
+                <h3 className="font-semibold mb-3 text-blue-900">📊 Resumen de Operaciones</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-blue-700">Total de Ventas:</p>
+                    <p className="font-bold text-blue-900">{currentCash.stats.salesCount} operaciones</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Total Vendido:</p>
+                    <p className="font-bold text-blue-900">{formatCurrency(currentCash.stats.totalSales)}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Ticket Promedio:</p>
+                    <p className="font-bold text-blue-900">{formatCurrency(currentCash.stats.averageTicket)}</p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Horas Trabajadas:</p>
+                    <p className="font-bold text-blue-900">{currentCash.stats.hoursOpen}h</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Desglose por método de pago */}
+              <div className="bg-white p-4 rounded-lg border">
+                <h3 className="font-semibold mb-3">💰 Desglose por Método de Pago</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center p-2 bg-green-50 rounded">
+                    <span className="text-sm">💵 Efectivo</span>
+                    <span className="font-semibold">{formatCurrency(currentCash.stats.totalCash)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 bg-blue-50 rounded">
+                    <span className="text-sm">💳 Tarjetas</span>
+                    <span className="font-semibold">{formatCurrency(currentCash.stats.totalCard)}</span>
+                  </div>
+                  <div className="flex justify-between items-center p-2 bg-purple-50 rounded">
+                    <span className="text-sm">🏦 Transferencias</span>
+                    <span className="font-semibold">{formatCurrency(currentCash.stats.totalTransfer)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Control de efectivo */}
               <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  <strong>Monto esperado en efectivo:</strong> {formatCurrency(currentCash.stats.expectedAmount)}
-                </p>
-                <p className="text-xs text-yellow-700 mt-1">
-                  Apertura: {formatCurrency(currentCash.openingAmount)} + Ventas: {formatCurrency(currentCash.stats.totalCash)}
-                </p>
+                <h3 className="font-semibold mb-3 text-yellow-900">🔍 Control de Efectivo</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-yellow-700">Apertura:</span>
+                    <span className="font-semibold">{formatCurrency(currentCash.openingAmount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-yellow-700">+ Ventas en Efectivo:</span>
+                    <span className="font-semibold">{formatCurrency(currentCash.stats.totalCash)}</span>
+                  </div>
+                  <div className="border-t border-yellow-300 my-2 pt-2 flex justify-between">
+                    <span className="text-yellow-900 font-semibold">= Efectivo Esperado:</span>
+                    <span className="font-bold text-lg">{formatCurrency(currentCash.stats.expectedAmount)}</span>
+                  </div>
+                </div>
               </div>
 
               <div>
                 <label className="text-sm font-medium mb-2 block">
-                  Monto Real Contado <span className="text-red-500">*</span>
+                  💵 Efectivo Real Contado <span className="text-red-500">*</span>
                 </label>
                 <Input
                   type="number"
@@ -472,35 +544,62 @@ export default function MiCajaPage() {
                   value={closingAmount}
                   onChange={(e) => setClosingAmount(e.target.value)}
                   autoFocus
+                  className="text-lg font-semibold"
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Cuenta el efectivo que tienes en caja
+                  ⚠️ Cuenta cuidadosamente todo el efectivo en caja
                 </p>
               </div>
 
               {closingAmount && (
-                <div className={`p-3 rounded-lg ${
-                  parseFloat(closingAmount) - currentCash.stats.expectedAmount > 0 ? 'bg-green-50 border border-green-200' :
-                  parseFloat(closingAmount) - currentCash.stats.expectedAmount < 0 ? 'bg-red-50 border border-red-200' :
-                  'bg-blue-50 border border-blue-200'
+                <div className={`p-4 rounded-lg border-2 ${
+                  parseFloat(closingAmount) - currentCash.stats.expectedAmount > 0 ? 'bg-green-50 border-green-300' :
+                  parseFloat(closingAmount) - currentCash.stats.expectedAmount < 0 ? 'bg-red-50 border-red-300' :
+                  'bg-blue-50 border-blue-300'
                 }`}>
-                  <p className="text-sm font-semibold">
-                    Diferencia: {parseFloat(closingAmount) - currentCash.stats.expectedAmount >= 0 ? '+' : ''}
-                    {formatCurrency(parseFloat(closingAmount) - currentCash.stats.expectedAmount)}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Diferencia de Efectivo</p>
+                      <p className="text-2xl font-bold">
+                        {parseFloat(closingAmount) - currentCash.stats.expectedAmount >= 0 ? '+' : ''}
+                        {formatCurrency(parseFloat(closingAmount) - currentCash.stats.expectedAmount)}
+                      </p>
+                    </div>
+                    <div className="text-4xl">
+                      {parseFloat(closingAmount) - currentCash.stats.expectedAmount === 0 ? '✅' :
+                       parseFloat(closingAmount) - currentCash.stats.expectedAmount > 0 ? '📈' : '📉'}
+                    </div>
+                  </div>
+                  {Math.abs(parseFloat(closingAmount) - currentCash.stats.expectedAmount) >= 10 && (
+                    <p className="text-xs mt-2 font-semibold text-orange-600">
+                      ⚠️ Diferencia significativa - Las observaciones son obligatorias
+                    </p>
+                  )}
                 </div>
               )}
 
               <div>
                 <label className="text-sm font-medium mb-2 block">
-                  Observaciones
+                  📝 Observaciones {closingAmount && Math.abs(parseFloat(closingAmount) - currentCash.stats.expectedAmount) >= 10 && (
+                    <span className="text-red-500">*</span>
+                  )}
                 </label>
                 <Textarea
-                  placeholder="Notas sobre el cierre..."
+                  placeholder={closingAmount && Math.abs(parseFloat(closingAmount) - currentCash.stats.expectedAmount) >= 10 
+                    ? "Explica la diferencia de efectivo (OBLIGATORIO)..." 
+                    : "Notas sobre el cierre..."}
                   value={closingNotes}
                   onChange={(e) => setClosingNotes(e.target.value)}
                   rows={3}
+                  className={closingAmount && Math.abs(parseFloat(closingAmount) - currentCash.stats.expectedAmount) >= 10 && !closingNotes 
+                    ? 'border-red-300' 
+                    : ''}
                 />
+                {closingAmount && Math.abs(parseFloat(closingAmount) - currentCash.stats.expectedAmount) >= 10 && !closingNotes && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Debes explicar por qué hay una diferencia mayor a $10
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2 mt-6">

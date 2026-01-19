@@ -3,6 +3,12 @@ import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { requirePermission } from '@/lib/auth-middleware'
 import { z } from 'zod'
+import { 
+  validateCashDifference, 
+  validateNoPreviousClosing,
+  calculateCashDifference,
+  calculateExpectedCash
+} from '@/lib/cashClosing'
 
 const closeCashSchema = z.object({
   cashRegisterId: z.string().cuid(),
@@ -43,18 +49,60 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Verificar que no haya un cierre previo (doble cierre)
+    const existingClosing = await prisma.cashRegister.count({
+      where: {
+        id: cashRegister.id,
+        status: 'CLOSED'
+      }
+    })
+
+    const noClosingValidation = validateNoPreviousClosing(cashRegister.id, existingClosing > 0)
+    if (!noClosingValidation.valid) {
+      return NextResponse.json(
+        { error: noClosingValidation.error },
+        { status: 400 }
+      )
+    }
+
     // Calcular totales de ventas del turno
-    const salesStats = await prisma.sale.aggregate({
+    const sales = await prisma.sale.findMany({
       where: {
         cashRegisterId: cashRegister.id,
         businessId: session.user.businessId,
         status: 'COMPLETADO'
       },
-      _sum: {
-        total: true
+      select: {
+        id: true,
+        total: true,
+        subtotal: true,
+        paymentMethod: true,
+        hasMixedPayment: true
+      }
+    })
+
+    // Calcular devoluciones del turno
+    const refunds = await prisma.refund.findMany({
+      where: {
+        sale: {
+          cashRegisterId: cashRegister.id
+        }
       },
-      _count: {
-        id: true
+      select: {
+        id: true,
+        refundAmount: true
+      }
+    })
+
+    // Obtener pagos mixtos
+    const mixedPaymentSales = await prisma.sale.findMany({
+      where: {
+        cashRegisterId: cashRegister.id,
+        hasMixedPayment: true,
+        status: 'COMPLETADO'
+      },
+      include: {
+        salePayments: true
       }
     })
 
@@ -64,7 +112,8 @@ export async function POST(request: NextRequest) {
       where: {
         cashRegisterId: cashRegister.id,
         businessId: session.user.businessId,
-        status: 'COMPLETADO'
+        status: 'COMPLETADO',
+        hasMixedPayment: false
       },
       _sum: {
         total: true
@@ -87,13 +136,55 @@ export async function POST(request: NextRequest) {
       .filter(s => !['EFECTIVO', 'TARJETA_DEBITO', 'TARJETA_CREDITO', 'TRANSFERENCIA', 'QR'].includes(s.paymentMethod))
       .reduce((acc, s) => acc + Number(s._sum.total || 0), 0)
 
-    // Calcular monto esperado en efectivo (apertura + ventas en efectivo)
-    const expectedAmount = Number(cashRegister.openingAmount) + totalCash
+    // Calcular total de pagos mixtos
+    const totalMixedPayments = mixedPaymentSales.reduce((acc, sale) => acc + Number(sale.total), 0)
+
+    // Calcular efectivo en pagos mixtos
+    const mixedCashAmount = mixedPaymentSales.reduce((acc, sale) => {
+      const cashPayment = sale.salePayments.find(p => p.paymentMethod === 'EFECTIVO')
+      return acc + (cashPayment ? Number(cashPayment.amount) : 0)
+    }, 0)
+
+    // Calcular monto esperado en efectivo (apertura + ventas en efectivo + efectivo de pagos mixtos)
+    const expectedAmount = calculateExpectedCash(
+      Number(cashRegister.openingAmount),
+      totalCash,
+      mixedCashAmount
+    )
 
     // Calcular diferencia
-    const difference = validatedData.closingAmount - expectedAmount
+    const difference = calculateCashDifference(validatedData.closingAmount, expectedAmount)
 
-    // Actualizar caja
+    // Validar diferencia y observaciones
+    const cashDifferenceValidation = validateCashDifference(
+      difference,
+      validatedData.notes
+    )
+
+    if (!cashDifferenceValidation.valid) {
+      return NextResponse.json(
+        { 
+          error: cashDifferenceValidation.error,
+          requiresNotes: cashDifferenceValidation.requiresNotes,
+          difference,
+          expectedAmount
+        },
+        { status: 400 }
+      )
+    }
+
+    // Calcular total de devoluciones
+    const totalRefunds = refunds.reduce((acc, r) => acc + Number(r.refundAmount), 0)
+
+    // Calcular total bruto y neto
+    const totalGrossSales = sales.reduce((acc, s) => acc + Number(s.total), 0)
+    const totalNetSales = sales.reduce((acc, s) => acc + Number(s.subtotal), 0)
+
+    // TODO: Implementar cálculo de facturado vs no facturado cuando se implemente facturación
+    const totalInvoiced = 0
+    const totalNotInvoiced = totalGrossSales
+
+    // Actualizar caja con transacción
     const closedCash = await prisma.$transaction(async (tx) => {
       const updated = await tx.cashRegister.update({
         where: { id: cashRegister.id },
@@ -107,7 +198,14 @@ export async function POST(request: NextRequest) {
           totalCard: totalCard,
           totalTransfer: totalTransfer,
           totalOther: totalOther,
-          salesCount: salesStats._count.id,
+          totalMixedPayments: totalMixedPayments,
+          totalRefunds: totalRefunds,
+          totalInvoiced: totalInvoiced,
+          totalNotInvoiced: totalNotInvoiced,
+          salesCount: sales.length,
+          refundsCount: refunds.length,
+          closedBy: session.user.id,
+          requiresAuthorization: Math.abs(difference) >= 50, // Requiere autorización si diferencia es >= $50
           notes: validatedData.notes ? `${cashRegister.notes || ''}\nCierre: ${validatedData.notes}` : cashRegister.notes
         },
         include: {
@@ -139,17 +237,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ...closedCash,
       summary: {
-        salesCount: salesStats._count.id,
-        totalSales: Number(salesStats._sum.total || 0),
+        salesCount: sales.length,
+        refundsCount: refunds.length,
+        totalSales: totalGrossSales,
+        totalNetSales: totalNetSales,
+        totalGrossSales: totalGrossSales,
         totalCash,
         totalCard,
         totalTransfer,
         totalOther,
+        totalMixedPayments,
+        totalRefunds,
+        totalInvoiced,
+        totalNotInvoiced,
         openingAmount: Number(cashRegister.openingAmount),
         closingAmount: validatedData.closingAmount,
         expectedAmount,
         difference,
-        hoursWorked: Math.round((closedCash.closedAt!.getTime() - cashRegister.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
+        cashDifference: difference,
+        hoursWorked: Math.round((closedCash.closedAt!.getTime() - cashRegister.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10,
+        requiresAuthorization: Math.abs(difference) >= 50
       }
     })
   } catch (error) {
