@@ -50,7 +50,7 @@ async function main() {
       console.log(`     Plan: ${trial.plan.name}`)
       console.log(`     Expira: ${trial.trialEndsAt?.toLocaleDateString()}`)
       console.log(`     Días restantes: ${daysRemaining}`)
-      console.log(`     Notificado: ${trial.trialNotificationSent ? '✅' : '❌'}`)
+      // console.log(`     Notificado: ${trial.trialNotificationSent ? '✅' : '❌'}`)
       console.log('')
     }
   }
@@ -69,7 +69,7 @@ async function main() {
         gte: now,
         lte: threeDaysFromNow,
       },
-      trialNotificationSent: false,
+      // trialNotificationSent: false,
     },
     include: {
       business: {
