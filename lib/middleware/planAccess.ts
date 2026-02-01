@@ -191,27 +191,36 @@ export async function checkSubscriptionStatus(businessId: string): Promise<{
     if (business.subscriptionARS?.freeTrial) {
       const trialEnd = business.subscriptionARS.trialEndsAt;
       if (trialEnd && new Date() > trialEnd) {
+        // El cron job ya debería haber cambiado a FREE, pero por si acaso
+        if (business.planType !== "FREE") {
+          await prisma.business.update({
+            where: { id: businessId },
+            data: { planType: "FREE" },
+          });
+        }
+
         await prisma.planBlockLog.create({
           data: {
             businessId,
             type: "EXPIRED",
-            reason: "Prueba gratuita expirada",
+            reason: "Prueba gratuita expirada - Cambiado a plan FREE",
           },
         });
 
-        const recommendation = await getUpgradeRecommendation(businessId);
-        return {
-          active: false,
-          reason: "Tu prueba gratuita ha expirado. Suscríbete para continuar.",
-          recommendation,
-        };
+        // Permitir acceso con plan FREE (no bloquear completamente)
+        return { active: true };
       }
       return { active: true };
     }
 
-    // Verificar suscripción activa
+    // Si está en plan FREE, permitir acceso (con límites aplicados en checkPlanLimit)
+    if (business.planType === "FREE") {
+      return { active: true };
+    }
+
+    // Verificar suscripción activa (solo para planes pagos)
     if (business.subscriptionARS) {
-      if (business.subscriptionARS.status !== "ACTIVE") {
+      if (business.subscriptionARS.status !== "active") {
         await prisma.planBlockLog.create({
           data: {
             businessId,

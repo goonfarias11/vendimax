@@ -169,6 +169,7 @@ model SubscriptionARS {
   currentPeriodEnd         DateTime
   freeTrial                Boolean             @default(false)
   trialEndsAt              DateTime?
+  trialNotificationSent    Boolean             @default(false)
   setupFeePaid             Boolean             @default(false)
   setupFeeAmount           Decimal?            @db.Decimal(10, 2)
   setupFeePaidAt           DateTime?

@@ -8,7 +8,9 @@ import {
   PriceAdjustmentWarningEmail,
   SubscriptionExpirationEmail,
   AddonActivatedEmail,
-  AddonDeactivatedEmail
+  AddonDeactivatedEmail,
+  TrialExpiringSoonEmail,
+  TrialExpiredEmail
 } from '@/emails'
 
 // Lazy initialization - solo crear cuando se use
@@ -200,5 +202,41 @@ export async function sendAddonDeactivatedEmail(data: {
     to: data.to,
     subject: `Addon desactivado: ${data.addonName}`,
     react: AddonDeactivatedEmail(data)
+  })
+}
+
+// 10. Email de trial expirando pronto (3 días antes)
+export async function sendTrialExpiringSoonEmail(data: {
+  to: string
+  name: string
+  daysRemaining: number
+  planName: string
+  monthlyPrice: number
+  subscriptionUrl: string
+}) {
+  return sendEmail({
+    to: data.to,
+    subject: `Tu prueba gratuita expira en ${data.daysRemaining} días`,
+    react: TrialExpiringSoonEmail(data)
+  })
+}
+
+// 11. Email de trial expirado
+export async function sendTrialExpiredEmail(data: {
+  to: string
+  name: string
+  planName: string
+  monthlyPrice: number
+  subscriptionUrl: string
+  freePlanLimits: {
+    products: number
+    sales: number
+    users: number
+  }
+}) {
+  return sendEmail({
+    to: data.to,
+    subject: 'Tu prueba gratuita ha expirado - Continúa con VendiMax',
+    react: TrialExpiredEmail(data)
   })
 }

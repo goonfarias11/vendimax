@@ -41,6 +41,7 @@ vendimax/
 ├── app/                    # App Router de Next.js
 │   ├── api/               # API routes
 │   │   ├── auth/         # NextAuth handlers
+│   │   ├── cron/         # Cron jobs (verificación de trials)
 │   │   └── register/     # Registro de usuarios
 │   ├── dashboard/         # Páginas del dashboard (protegidas)
 │   │   ├── ventas/
@@ -48,6 +49,7 @@ vendimax/
 │   │   ├── clientes/
 │   │   ├── proveedores/
 │   │   ├── caja/
+│   │   └── suscripcion/  # Gestión de suscripciones
 │   │   ├── reportes/
 │   │   └── configuracion/
 │   ├── login/            # Página de login
@@ -220,6 +222,32 @@ Configuración en `lib/config.ts`:
 - **/dashboard/caja** - Movimientos de caja
 - **/dashboard/reportes** - Reportes y análisis
 - **/dashboard/configuracion** - Configuración del sistema
+- **/dashboard/suscripcion** - Gestión de planes y suscripciones
+
+## 💳 Sistema de Suscripciones
+
+VendiMax incluye un sistema completo de suscripciones con:
+
+### Prueba Gratuita de 7 Días
+- ✅ Al registrarse, los usuarios obtienen **7 días gratis** del plan PRO
+- ✅ **3 días antes** de expirar reciben email recordatorio
+- ✅ Al expirar, se **degrada automáticamente a plan FREE** (sin bloquear)
+- ✅ Pueden actualizar a plan pago en cualquier momento
+
+### Planes Disponibles
+- **FREE**: 50 productos, 100 ventas/mes, 1 usuario
+- **BÁSICO**: 1,000 productos, 5,000 ventas/mes
+- **PYME**: 5,000 productos, 10,000 ventas/mes
+- **EMPRESA**: Productos y ventas ilimitados
+
+### Gestión Automática de Trials
+El sistema incluye un **cron job** que se ejecuta diariamente para:
+- Detectar trials que están por expirar (3 días antes)
+- Enviar notificaciones por email
+- Degradar automáticamente a plan FREE cuando expiran
+- Permitir continuar usando el sistema con funcionalidad reducida
+
+Ver documentación completa: [docs/TRIAL_MANAGEMENT.md](docs/TRIAL_MANAGEMENT.md)
 
 ## 🎯 Próximos Pasos
 

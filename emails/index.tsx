@@ -7,3 +7,6 @@ export { PriceAdjustmentWarningEmail } from './price-adjustment-warning'
 export { SubscriptionExpirationEmail } from './subscription-expiration'
 export { AddonActivatedEmail } from './addon-activated'
 export { AddonDeactivatedEmail } from './addon-deactivated'
+export { TrialExpiringSoonEmail } from './trial-expiring-soon'
+export { TrialExpiredEmail } from './trial-expired'
+
