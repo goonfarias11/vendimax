@@ -26,7 +26,8 @@ export async function GET(req: NextRequest) {
           gte: now,
           lte: threeDaysFromNow,
         },
-        trialNotificationSent: false, // Solo notificar una vez
+        // TODO: Descomentar cuando el campo esté en la BD
+        // trialNotificationSent: false, // Solo notificar una vez
       },
       include: {
         business: {
@@ -89,10 +90,13 @@ export async function GET(req: NextRequest) {
         });
 
         // Marcar como notificado
+        // TODO: Descomentar cuando el campo esté en la BD
+        /*
         await prisma.subscriptionARS.update({
           where: { id: trial.id },
           data: { trialNotificationSent: true },
         });
+        */
 
         results.notificationsSent++;
       } catch (error) {
