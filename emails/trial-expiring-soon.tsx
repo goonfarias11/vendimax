@@ -29,7 +29,7 @@ export const TrialExpiringSoonEmail = ({
 }: TrialExpiringSoonEmailProps) => (
   <Html>
     <Head />
-    <Preview>Tu prueba gratuita expira en {daysRemaining} días</Preview>
+    <Preview>{`Tu prueba gratuita expira en ${daysRemaining} días`}</Preview>
     <Body style={main}>
       <Container style={container}>
         <Heading style={h1}>⏰ Tu prueba gratuita está por expirar</Heading>
