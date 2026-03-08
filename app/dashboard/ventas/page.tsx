@@ -71,19 +71,23 @@ export default function VentasPage() {
       
       const data = await response.json();
       
+      // El API devuelve { sales: [...], pagination: {...} }
+      const salesData = data.sales || data;
+      
       // Formatear datos para la tabla
-      const formattedSales: Sale[] = data.map((sale: any) => ({
-        id: sale.number || sale.id.slice(0, 8),
+      const formattedSales: Sale[] = salesData.map((sale: any) => ({
+        id: sale.ticketNumber || sale.id.slice(0, 8),
         cliente: sale.client?.name || "Sin cliente",
         fecha: new Date(sale.createdAt).toLocaleString("es-AR"),
-        items: sale.saleItems?.length || 0,
+        items: sale.itemsCount || sale.saleItems?.length || 0,
         total: sale.total,
         metodoPago: formatPaymentMethod(sale.paymentMethod),
-        estado: sale.cashClosingId ? "Cerrado" : "Abierto"
+        estado: sale.status === 'COMPLETADO' ? "Completado" : sale.status || "Pendiente"
       }));
       
       setSales(formattedSales);
     } catch (error) {
+      console.error("Error al cargar ventas:", error);
       alert("Error al cargar ventas");
     } finally {
       setLoading(false);
@@ -154,7 +158,7 @@ export default function VentasPage() {
         <div className="rounded-lg border bg-white p-4">
           <p className="text-sm text-gray-600">Total Ventas</p>
           <p className="text-2xl font-bold text-gray-900">
-            ${sales.reduce((sum, s) => sum + s.total, 0).toLocaleString()}
+            ${sales.filter(s => s.estado === 'Completado').reduce((sum, s) => sum + s.total, 0).toLocaleString()}
           </p>
         </div>
         <div className="rounded-lg border bg-white p-4">
@@ -164,7 +168,7 @@ export default function VentasPage() {
         <div className="rounded-lg border bg-white p-4">
           <p className="text-sm text-gray-600">Ticket Promedio</p>
           <p className="text-2xl font-bold text-gray-900">
-            ${sales.length > 0 ? safeNumber(sales.reduce((sum, s) => sum + safeNumber(s.total), 0) / sales.length).toFixed(0) : '0'}
+            ${sales.filter(s => s.estado === 'Completado').length > 0 ? safeNumber(sales.filter(s => s.estado === 'Completado').reduce((sum, s) => sum + safeNumber(s.total), 0) / sales.filter(s => s.estado === 'Completado').length).toFixed(0) : '0'}
           </p>
         </div>
       </div>

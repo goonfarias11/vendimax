@@ -28,9 +28,13 @@ import {
   Ban, 
   Download,
   Calendar,
-  ShieldAlert,
   CheckCircle,
+  Clock,
   XCircle,
+  User,
+  CreditCard,
+  FileText,
+  ShieldAlert,
   AlertCircle
 } from "lucide-react"
 import { toast } from "sonner"
@@ -101,13 +105,13 @@ const paymentMethodLabels: Record<string, string> = {
 const statusColors: Record<string, string> = {
   COMPLETADO: 'bg-green-100 text-green-800',
   PENDIENTE: 'bg-yellow-100 text-yellow-800',
-  ANULADO: 'bg-red-100 text-red-800'
+  CANCELADO: 'bg-red-100 text-red-800'
 }
 
 const statusIcons: Record<string, any> = {
   COMPLETADO: CheckCircle,
-  PENDIENTE: AlertCircle,
-  ANULADO: XCircle
+  PENDIENTE: Clock,
+  CANCELADO: XCircle
 }
 
 // Helpers para renderizar datos de forma segura (anti-crash)
@@ -381,7 +385,7 @@ export default function SalesHistoryPage() {
                 <SelectItem value="all">Todos</SelectItem>
                 <SelectItem value="COMPLETADO">Completado</SelectItem>
                 <SelectItem value="PENDIENTE">Pendiente</SelectItem>
-                <SelectItem value="ANULADO">Anulado</SelectItem>
+                <SelectItem value="CANCELADO">Cancelado</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -426,7 +430,7 @@ export default function SalesHistoryPage() {
         <Card className="p-4">
           <div className="text-sm text-gray-600">Monto Total</div>
           <div className="text-2xl font-bold">
-            ${formatCurrency(filteredSales.reduce((sum, sale) => sum + safeNumber(sale.total), 0))}
+            ${formatCurrency(filteredSales.filter(s => s.status === 'COMPLETADO').reduce((sum, sale) => sum + safeNumber(sale.total), 0))}
           </div>
         </Card>
         <Card className="p-4">
@@ -436,9 +440,9 @@ export default function SalesHistoryPage() {
           </div>
         </Card>
         <Card className="p-4">
-          <div className="text-sm text-gray-600">Anuladas</div>
+          <div className="text-sm text-gray-600">Canceladas</div>
           <div className="text-2xl font-bold text-red-600">
-            {filteredSales.filter(s => s.status === 'ANULADO').length}
+            {filteredSales.filter(s => s.status === 'CANCELADO').length}
           </div>
         </Card>
       </div>

@@ -14,7 +14,7 @@ const productSchema = z.object({
   description: z.string().optional().nullable(),
   price: z.number().positive("El precio debe ser mayor a 0"),
   cost: z.number().positive("El costo debe ser mayor a 0"),
-  stock: z.number().int().min(0, "El stock no puede ser negativo"),
+  stock: z.number().int().min(0, "El stock no puede ser negativo").optional(), // Para actualizar en warehouse principal
   minStock: z.number().int().min(0, "El stock mínimo no puede ser negativo"),
   maxStock: z.number().int().positive().optional().nullable(),
   categoryId: z.string().optional().nullable(),
@@ -82,6 +82,11 @@ export async function GET(request: NextRequest) {
             stock: true,
             isActive: true
           }
+        },
+        productStocks: {
+          select: {
+            stock: true
+          }
         }
       },
       orderBy: {
@@ -90,34 +95,39 @@ export async function GET(request: NextRequest) {
       take: limit
     })
 
-    const formatted = products.map(p => ({
-      id: p.id,
-      name: p.name,
-      sku: p.sku,
-      barcode: p.barcode,
-      description: p.description,
-      price: Number(p.price),
-      salePrice: Number(p.price), // Para compatibilidad con POS
-      cost: Number(p.cost),
-      stock: p.stock,
-      minStock: p.minStock,
-      maxStock: p.maxStock,
-      categoryId: p.categoryId,
-      category: p.category,
-      image: p.image,
-      unit: p.unit,
-      taxRate: Number(p.taxRate),
-      isActive: p.isActive,
-      hasVariants: (p as any).variants?.length > 0,
-      variants: (p as any).variants?.map((v: any) => ({
-        id: v.id,
-        name: v.name,
-        sku: v.sku,
-        salePrice: Number(v.price),
-        stock: v.stock,
-        isActive: v.isActive
-      }))
-    }))
+    const formatted = products.map(p => {
+      // Calcular stock total desde ProductStock (suma de todos los warehouses)
+      const totalStock = (p as any).productStocks?.reduce((sum: number, ps: any) => sum + ps.stock, 0) || 0;
+      
+      return {
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.barcode,
+        description: p.description,
+        price: Number(p.price),
+        salePrice: Number(p.price), // Para compatibilidad con POS
+        cost: Number(p.cost),
+        stock: totalStock,
+        minStock: p.minStock,
+        maxStock: p.maxStock,
+        categoryId: p.categoryId,
+        category: p.category,
+        image: p.image,
+        unit: p.unit,
+        taxRate: Number(p.taxRate),
+        isActive: p.isActive,
+        hasVariants: (p as any).variants?.length > 0,
+        variants: (p as any).variants?.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          sku: v.sku,
+          salePrice: Number(v.price),
+          stock: v.stock,
+          isActive: v.isActive
+        }))
+      }
+    })
 
     return NextResponse.json(formatted)
   } catch (error) {
@@ -145,6 +155,7 @@ export async function POST(request: NextRequest) {
     const businessId = session.user.businessId
 
     const body = await request.json()
+    const { stock: initialStock, ...productData } = body
     const validatedData = productSchema.parse(body)
 
     // Verificar si el SKU ya existe en este negocio
@@ -181,13 +192,95 @@ export async function POST(request: NextRequest) {
 
     const product = await prisma.product.create({
       data: {
-        ...validatedData,
+        ...productData,
         businessId
       },
       include: {
         category: true
       }
     })
+
+    // Si se proporciona stock inicial, crear registro en ProductStock para el warehouse principal
+    if (typeof initialStock === 'number') {
+      // Buscar o crear warehouse principal
+      let mainWarehouse = await prisma.warehouse.findFirst({
+        where: {
+          branch: {
+            businessId
+          },
+          isMain: true,
+          isActive: true
+        }
+      })
+
+      // Si no existe warehouse principal, buscar el primer warehouse activo
+      if (!mainWarehouse) {
+        mainWarehouse = await prisma.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId
+            },
+            isActive: true
+          }
+        })
+      }
+
+      // Si no existe ningún warehouse, crear branch y warehouse por defecto
+      if (!mainWarehouse) {
+        // Buscar o crear branch principal
+        let mainBranch = await prisma.branch.findFirst({
+          where: {
+            businessId,
+            isMain: true
+          }
+        })
+
+        if (!mainBranch) {
+          mainBranch = await prisma.branch.create({
+            data: {
+              businessId,
+              name: "Sucursal Principal",
+              code: "MAIN",
+              isMain: true,
+              isActive: true
+            }
+          })
+        }
+
+        // Crear warehouse principal
+        mainWarehouse = await prisma.warehouse.create({
+          data: {
+            branchId: mainBranch.id,
+            name: "Almacén Principal",
+            code: "MAIN",
+            isMain: true,
+            isActive: true
+          }
+        })
+      }
+
+      // Crear o actualizar ProductStock
+      if (mainWarehouse) {
+        await prisma.productStock.upsert({
+          where: {
+            productId_warehouseId: {
+              productId: product.id,
+              warehouseId: mainWarehouse.id
+            }
+          },
+          create: {
+            productId: product.id,
+            warehouseId: mainWarehouse.id,
+            stock: initialStock,
+            available: initialStock
+          },
+          update: {
+            stock: initialStock,
+            available: initialStock
+          }
+        })
+      }
+    }
 
     return NextResponse.json(product, { status: 201 })
   } catch (error) {
@@ -227,6 +320,7 @@ export async function PUT(request: NextRequest) {
     await verifyProductOwnership(id, businessId)
 
     const body = await request.json()
+    const { stock: newStock, ...productData } = body
     const validatedData = productSchema.parse(body)
 
     // Verificar si el SKU ya está en uso por otro producto del mismo negocio
@@ -247,11 +341,93 @@ export async function PUT(request: NextRequest) {
 
     const product = await prisma.product.update({
       where: { id },
-      data: validatedData,
+      data: productData,
       include: {
         category: true
       }
     })
+
+    // Si se proporciona stock, actualizar ProductStock en warehouse principal
+    if (typeof newStock === 'number') {
+      // Buscar warehouse principal
+      let mainWarehouse = await prisma.warehouse.findFirst({
+        where: {
+          branch: {
+            businessId
+          },
+          isMain: true,
+          isActive: true
+        }
+      })
+
+      // Si no existe warehouse principal, buscar el primer warehouse activo
+      if (!mainWarehouse) {
+        mainWarehouse = await prisma.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId
+            },
+            isActive: true
+          }
+        })
+      }
+
+      // Si no existe ningún warehouse, crear branch y warehouse por defecto
+      if (!mainWarehouse) {
+        // Buscar o crear branch principal
+        let mainBranch = await prisma.branch.findFirst({
+          where: {
+            businessId,
+            isMain: true
+          }
+        })
+
+        if (!mainBranch) {
+          mainBranch = await prisma.branch.create({
+            data: {
+              businessId,
+              name: "Sucursal Principal",
+              code: "MAIN",
+              isMain: true,
+              isActive: true
+            }
+          })
+        }
+
+        // Crear warehouse principal
+        mainWarehouse = await prisma.warehouse.create({
+          data: {
+            branchId: mainBranch.id,
+            name: "Almacén Principal",
+            code: "MAIN",
+            isMain: true,
+            isActive: true
+          }
+        })
+      }
+
+      // Crear o actualizar ProductStock
+      if (mainWarehouse) {
+        await prisma.productStock.upsert({
+          where: {
+            productId_warehouseId: {
+              productId: id,
+              warehouseId: mainWarehouse.id
+            }
+          },
+          create: {
+            productId: id,
+            warehouseId: mainWarehouse.id,
+            stock: newStock,
+            available: newStock
+          },
+          update: {
+            stock: newStock,
+            available: newStock
+          }
+        })
+      }
+    }
 
     return NextResponse.json(product)
   } catch (error) {

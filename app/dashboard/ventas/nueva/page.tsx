@@ -42,6 +42,9 @@ export default function NuevaVentaPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<"EFECTIVO" | "TARJETA_DEBITO" | "TARJETA_CREDITO" | "TRANSFERENCIA" | "QR" | "CUENTA_CORRIENTE" | "OTRO">("EFECTIVO")
+  const [documentType, setDocumentType] = useState<"ticket" | "factura_a" | "factura_b" | "factura_c">("ticket")
+  const [clientDocType, setClientDocType] = useState<"CUIT" | "CUIL" | "DNI" | "">("")
+  const [clientDocNumber, setClientDocNumber] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [showProductResults, setShowProductResults] = useState(false)
@@ -68,8 +71,8 @@ export default function NuevaVentaPage() {
         // Asegurar que price y stock sean números
         const productsWithNumbers = data.map((p: any) => ({
           ...p,
-          price: Number(p.price),
-          stock: Number(p.stock)
+          price: Number(p.price) || 0,
+          stock: Number(p.stock) || 0
         }))
         setProducts(productsWithNumbers)
       })
@@ -164,6 +167,8 @@ export default function NuevaVentaPage() {
   }
 
   const total = cart.reduce((sum, item) => sum + item.subtotal, 0)
+  const subtotal = total
+  const tax = 0
 
   const handleCreateClient = async () => {
     if (!newClientData.name.trim()) {
@@ -237,6 +242,14 @@ export default function NuevaVentaPage() {
       }
     }
 
+    // Validar campos requeridos para factura electrónica
+    if (documentType !== "ticket") {
+      if (!clientDocType || !clientDocNumber) {
+        setError("Para emitir factura electrónica, ingresá el tipo y número de documento del cliente")
+        return
+      }
+    }
+
     setLoading(true)
     setError("")
 
@@ -244,10 +257,22 @@ export default function NuevaVentaPage() {
       const payload = {
         clientId: selectedClient.id,
         paymentMethod,
+        total: Number(total),
+        subtotal: Number(subtotal),
+        tax: Number(tax),
+        discount: 0,
+        discountType: "fixed" as const,
+        documentType,
+        ...(documentType !== "ticket" && {
+          clientDocType,
+          clientDocNumber,
+          generateAfipInvoice: true
+        }),
         items: cart.map(item => ({
           productId: item.id,
           quantity: Number(item.quantity),
-          price: Number(item.price)
+          unitPrice: Number(item.price),
+          subtotal: Number(item.subtotal)
         }))
       }
 
@@ -273,7 +298,20 @@ export default function NuevaVentaPage() {
         throw new Error(data.error || "Error al crear la venta")
       }
 
-      // Éxito
+      const result = await response.json()
+
+      // Mostrar CAE si se generó factura AFIP
+      if (result.afipInvoice && result.afipInvoice.cae) {
+        alert(
+          `✅ Venta registrada exitosamente!\n\n` +
+          `📄 Factura Electrónica AFIP\n` +
+          `CAE: ${result.afipInvoice.cae}\n` +
+          `Vencimiento: ${result.afipInvoice.caeDueDate}\n` +
+          `Comprobante: ${result.afipInvoice.voucherType}-${String(result.afipInvoice.voucherNumber).padStart(8, '0')}`
+        )
+      }
+
+      // Éxito - redirigir a lista de ventas
       router.push("/dashboard/ventas")
     } catch (err: any) {
       setError(err.message)
@@ -529,7 +567,7 @@ export default function NuevaVentaPage() {
                         onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
                         className="w-16 text-center border border-gray-300 rounded py-1"
                         min="1"
-                        max={item.stock}
+                        {...(typeof item.stock === 'number' && !isNaN(item.stock) && { max: item.stock })}
                       />
                       <button
                         onClick={() => updateQuantity(item.id, item.quantity + 1)}
@@ -593,7 +631,69 @@ export default function NuevaVentaPage() {
                 <option value="CUENTA_CORRIENTE">Cuenta Corriente</option>
                 <option value="OTRO">Otro</option>
               </select>
+            </div>
 
+            {/* Selector de Tipo de Comprobante */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tipo de Comprobante
+              </label>
+              <select
+                value={documentType}
+                onChange={(e) => setDocumentType(e.target.value as any)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              >
+                <option value="ticket">Ticket</option>
+                <option value="factura_a">Factura A (Responsable Inscripto)</option>
+                <option value="factura_b">Factura B (Consumidor Final)</option>
+                <option value="factura_c">Factura C (Exento)</option>
+              </select>
+              
+              {documentType !== "ticket" && (
+                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900 mb-3">
+                    📄 Factura Electrónica AFIP
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tipo de Documento *
+                      </label>
+                      <select
+                        value={clientDocType}
+                        onChange={(e) => setClientDocType(e.target.value as any)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        required
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="CUIT">CUIT</option>
+                        <option value="CUIL">CUIL</option>
+                        <option value="DNI">DNI</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número de Documento *
+                      </label>
+                      <input
+                        type="text"
+                        value={clientDocNumber}
+                        onChange={(e) => setClientDocNumber(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="20123456789"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        maxLength={11}
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {clientDocType === "CUIT" || clientDocType === "CUIL" ? "11 dígitos sin guiones" : "Solo números"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mb-6">
               {/* Alerta de Crédito Disponible */}
               {paymentMethod === "CUENTA_CORRIENTE" && selectedClient && (
                 <div className={`mt-3 p-3 rounded-lg ${

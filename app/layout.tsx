@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { siteConfig } from "@/lib/config";
 import { SessionProvider } from "@/components/session-provider";
+import { ImpersonationProvider } from "@/components/states/impersonation-context";
 import { Toaster } from "sonner";
 
 const inter = Inter({
@@ -60,7 +61,9 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <SessionProvider>
-          {children}
+          <ImpersonationProvider>
+            {children}
+          </ImpersonationProvider>
         </SessionProvider>
         <Toaster position="top-right" richColors />
       </body>

@@ -48,6 +48,7 @@ model Business {
   isDemo          Boolean          @default(false)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+  branches        Branch[]
   cashClosings    CashClosing[]
   clients         Client[]
   invoices        Invoice[]
@@ -298,7 +299,6 @@ model Product {
   price          Decimal          @db.Decimal(10, 2)
   wholesalePrice Decimal?         @db.Decimal(10, 2)
   cost           Decimal          @db.Decimal(10, 2)
-  stock          Int              @default(0)
   minStock       Int              @default(0)
   maxStock       Int?
   categoryId     String?
@@ -317,6 +317,7 @@ model Product {
   refundItems    RefundItem[]
   saleItems      SaleItem[]
   stockMovements StockMovement[]
+  productStocks  ProductStock[]
 
   @@unique([businessId, sku])
   @@unique([businessId, barcode])
@@ -332,6 +333,8 @@ model Sale {
   userId          String
   clientId        String?
   cashClosingId   String?
+  branchId        String?
+  warehouseId     String?
   total           Decimal       @db.Decimal(10, 2)
   subtotal        Decimal       @db.Decimal(10, 2)
   tax             Decimal       @default(0) @db.Decimal(10, 2)
@@ -342,6 +345,8 @@ model Sale {
   status          SaleStatus    @default(COMPLETADO)
   notes           String?
   ticketNumber    Int?
+  requiresInvoice Boolean       @default(false)
+  invoiceType     Int?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   businessId      String
@@ -354,12 +359,16 @@ model Sale {
   cashRegister    CashRegister? @relation(fields: [cashRegisterId], references: [id])
   client          Client?       @relation(fields: [clientId], references: [id])
   user            User          @relation(fields: [userId], references: [id])
+  branch          Branch?       @relation(fields: [branchId], references: [id])
+  warehouse       Warehouse?    @relation(fields: [warehouseId], references: [id])
 
   @@index([businessId])
   @@index([userId])
   @@index([clientId])
   @@index([cashClosingId])
   @@index([cashRegisterId])
+  @@index([branchId])
+  @@index([warehouseId])
   @@index([createdAt])
   @@index([status])
   @@map("sales")
@@ -510,6 +519,7 @@ model Purchase {
   id            String         @id @default(cuid())
   supplierId    String
   userId        String
+  warehouseId   String?
   total         Decimal        @db.Decimal(10, 2)
   subtotal      Decimal        @db.Decimal(10, 2)
   tax           Decimal        @default(0) @db.Decimal(10, 2)
@@ -523,6 +533,7 @@ model Purchase {
 
   @@index([supplierId])
   @@index([userId])
+  @@index([warehouseId])
   @@index([createdAt])
   @@map("purchases")
 }
@@ -666,19 +677,22 @@ model ProductVariant {
 }
 
 model StockMovement {
-  id        String            @id @default(cuid())
-  productId String
-  type      StockMovementType
-  quantity  Int
-  reason    String?
-  reference String?
-  userId    String
-  createdAt DateTime          @default(now())
-  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  user      User              @relation(fields: [userId], references: [id])
+  id          String            @id @default(cuid())
+  productId   String
+  warehouseId String?
+  type        StockMovementType
+  quantity    Int
+  reason      String?
+  reference   String?
+  userId      String
+  createdAt   DateTime          @default(now())
+  product     Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user        User              @relation(fields: [userId], references: [id])
+  warehouse   Warehouse?        @relation(fields: [warehouseId], references: [id])
 
   @@index([productId])
   @@index([userId])
+  @@index([warehouseId])
   @@index([createdAt])
   @@map("stock_movements")
 }
@@ -709,6 +723,215 @@ model PlanBlockLog {
   @@index([type])
   @@index([createdAt])
   @@map("plan_block_logs")
+}
+
+model Branch {
+  id          String      @id @default(cuid())
+  businessId  String
+  name        String
+  code        String
+  address     String?
+  phone       String?
+  isActive    Boolean     @default(true)
+  isMain      Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  business    Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  warehouses  Warehouse[]
+  sales       Sale[]
+
+  @@unique([businessId, code])
+  @@index([businessId])
+  @@index([isActive])
+  @@map("branches")
+}
+
+model Warehouse {
+  id             String           @id @default(cuid())
+  branchId       String
+  name           String
+  code           String
+  address        String?
+  isActive       Boolean          @default(true)
+  isMain         Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  branch         Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  productStocks  ProductStock[]
+  sales          Sale[]
+  stockMovements StockMovement[]
+
+  @@unique([branchId, code])
+  @@index([branchId])
+  @@index([isActive])
+  @@map("warehouses")
+}
+
+model ProductStock {
+  id          String    @id @default(cuid())
+  productId   String
+  warehouseId String
+  stock       Int       @default(0)
+  reserved    Int       @default(0)
+  available   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId])
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([stock])
+  @@map("product_stocks")
+}
+
+model Promotion {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  description String?
+  type        String
+  isActive    Boolean  @default(true)
+  startDate   DateTime
+  endDate     DateTime
+  conditions  Json
+  discount    Json
+  priority    Int      @default(0)
+  maxUses     Int?
+  currentUses Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([isActive])
+  @@index([startDate, endDate])
+  @@index([type])
+  @@map("promotions")
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  key         String   @unique
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  permissions Json     @default("[]")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([key])
+  @@index([isActive])
+  @@map("api_keys")
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  businessId  String
+  name        String
+  url         String
+  events      String[]
+  secret      String
+  isActive    Boolean  @default(true)
+  lastCalledAt DateTime?
+  failCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([businessId])
+  @@index([isActive])
+  @@map("webhooks")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  businessId String
+  userId     String?
+  action     String
+  entity     String
+  entityId   String?
+  changes    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AfipConfig {
+  id           String        @id @default(cuid())
+  businessId   String        @unique
+  cuit         String
+  razonSocial  String
+  cert         String?       @db.Text
+  key          String?       @db.Text
+  certPath     String?
+  keyPath      String?
+  production   Boolean       @default(false)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  pointsOfSale PointOfSale[]
+
+  @@index([businessId])
+  @@map("afip_configs")
+}
+
+model PointOfSale {
+  id           String        @id @default(cuid())
+  afipConfigId String
+  number       Int
+  name         String
+  emissionType String        @default("CAE")
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  afipConfig   AfipConfig    @relation(fields: [afipConfigId], references: [id], onDelete: Cascade)
+  invoices     AfipInvoice[]
+
+  @@unique([afipConfigId, number])
+  @@index([afipConfigId])
+  @@index([isActive])
+  @@map("points_of_sale")
+}
+
+model AfipInvoice {
+  id             String       @id @default(cuid())
+  saleId         String       @unique
+  pointOfSaleId  String
+  voucherType    Int
+  voucherNumber  Int
+  cae            String
+  caeDueDate     String
+  invoiceDate    String
+  documentType   Int
+  documentNumber String
+  totalAmount    Decimal      @db.Decimal(10, 2)
+  netAmount      Decimal      @db.Decimal(10, 2)
+  taxAmount      Decimal      @db.Decimal(10, 2)
+  exemptAmount   Decimal      @db.Decimal(10, 2)
+  result         String
+  observations   Json?
+  errors         Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  pointOfSale    PointOfSale  @relation(fields: [pointOfSaleId], references: [id])
+
+  @@unique([pointOfSaleId, voucherType, voucherNumber])
+  @@index([saleId])
+  @@index([pointOfSaleId])
+  @@index([cae])
+  @@index([voucherType])
+  @@index([createdAt])
+  @@map("afip_invoices")
 }
 
 enum UserRole {

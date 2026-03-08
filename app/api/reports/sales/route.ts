@@ -27,13 +27,14 @@ export async function GET(req: NextRequest) {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999); // Incluir todo el día
 
-    // Ventas del período
+    // Ventas del período (solo completadas)
     const sales = await prisma.sale.findMany({
       where: {
         createdAt: {
           gte: start,
           lte: end,
         },
+        status: 'COMPLETADO'
       },
       include: {
         saleItems: {

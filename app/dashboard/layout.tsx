@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopbar } from "@/components/dashboard/topbar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -85,6 +86,7 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-gray-50 print:bg-white">
+      <ImpersonationBanner />
       <div className="print:hidden">
         <DashboardSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </div>
@@ -97,7 +99,7 @@ export default function DashboardLayout({
       )}
       
       <div className="md:pl-64 print:pl-0">
-        <div className="print:hidden">
+        <div className="print:hidden" style={{ marginTop: typeof window !== 'undefined' && sessionStorage.getItem('impersonation') ? '52px' : '0' }}>
           <DashboardTopbar onMenuClick={() => setSidebarOpen(true)} />
         </div>
         <main className="p-6 print:p-8">

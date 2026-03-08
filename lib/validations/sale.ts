@@ -45,7 +45,10 @@ export const createSaleSchema = z.object({
   notes: z.string().optional(),
   items: z.array(saleItemSchema).min(1, "Debe incluir al menos un producto"),
   payments: z.array(salePaymentSchema).optional().nullable(),
-  documentType: z.enum(["ticket", "invoice"]).optional().default("ticket"),
+  documentType: z.enum(["ticket", "factura_a", "factura_b", "factura_c", "invoice"]).optional().default("ticket"),
+  generateAfipInvoice: z.boolean().optional().default(false),
+  clientDocType: z.enum(["CUIT", "CUIL", "DNI"]).optional(),
+  clientDocNumber: z.string().optional(),
 }).refine(
   (data) => {
     // Si tiene pagos mixtos, validar la suma

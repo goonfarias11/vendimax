@@ -19,7 +19,7 @@ interface Product {
   description?: string;
   price: number;
   cost: number;
-  stock: number;
+  stock?: number; // Opcional porque ahora se maneja en ProductStock
   minStock: number;
   maxStock?: number;
   categoryId?: string;
@@ -125,7 +125,7 @@ export default function ProductosPage() {
         ...formData,
         price: parseFloat(formData.price),
         cost: parseFloat(formData.cost),
-        stock: parseInt(formData.stock),
+        stock: parseInt(formData.stock), // Se guarda en ProductStock para warehouse principal
         minStock: parseInt(formData.minStock),
         maxStock: formData.maxStock ? parseInt(formData.maxStock) : null,
         taxRate: parseFloat(formData.taxRate),
@@ -191,14 +191,14 @@ export default function ProductosPage() {
       sku: product.sku,
       barcode: product.barcode || "",
       description: product.description || "",
-      price: product.price.toString(),
-      cost: product.cost.toString(),
-      stock: product.stock.toString(),
-      minStock: product.minStock.toString(),
+      price: (product.price || 0).toString(),
+      cost: (product.cost || 0).toString(),
+      stock: (product.stock || 0).toString(),
+      minStock: (product.minStock || 0).toString(),
       maxStock: product.maxStock?.toString() || "",
       categoryId: product.categoryId || "",
       unit: product.unit || "unidad",
-      taxRate: product.taxRate.toString(),
+      taxRate: (product.taxRate || 21).toString(),
     });
     setIsModalOpen(true);
   };
@@ -228,7 +228,7 @@ export default function ProductosPage() {
       product.barcode?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
+  const lowStockCount = products.filter((p) => (p.stock || 0) <= p.minStock).length;
 
   if (loading) {
     return (
@@ -289,7 +289,7 @@ export default function ProductosPage() {
             <div>
               <p className="text-sm text-gray-600">Valor Total Stock</p>
               <p className="text-2xl font-bold text-gray-900">
-                ${products.reduce((sum, p) => sum + p.cost * p.stock, 0).toLocaleString()}
+                ${products.reduce((sum, p) => sum + p.cost * (p.stock || 0), 0).toLocaleString()}
               </p>
             </div>
             <Package className="h-10 w-10 text-green-500" />
@@ -375,12 +375,12 @@ export default function ProductosPage() {
                   <td className="px-6 py-4">
                     <span
                       className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        product.stock <= product.minStock
+                        (product.stock || 0) <= product.minStock
                           ? "bg-red-100 text-red-800"
                           : "bg-green-100 text-green-800"
                       }`}
                     >
-                      {product.stock} {product.unit}
+                      {product.stock ?? 0} {product.unit}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-600">

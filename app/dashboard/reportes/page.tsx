@@ -35,10 +35,12 @@ export default function ReportesPage() {
       if (!res.ok) throw new Error("Error al cargar datos");
       
       const data = await res.json();
-      const sales = Array.isArray(data) ? data : data.sales || [];
+      const allSales = Array.isArray(data) ? data : data.sales || [];
+      // Filtrar solo ventas completadas (excluir canceladas)
+      const sales = allSales.filter((sale: any) => sale.status === 'COMPLETADO');
       setSalesData(sales);
 
-      // Calcular total de ventas
+      // Calcular total de ventas (solo completadas)
       const totalSales = sales.reduce((sum: number, sale: any) => sum + safeNumber(sale.total), 0);
 
       // Calcular total de productos vendidos

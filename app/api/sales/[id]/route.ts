@@ -163,27 +163,107 @@ export async function PUT(
         }
       })
 
-      // 2. Revertir stock
-      for (const item of sale.saleItems) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { increment: item.quantity }
+      // 2. Revertir stock usando ProductStock
+      // Buscar sucursal principal
+      let mainBranch = await tx.branch.findFirst({
+        where: {
+          businessId: session.user.businessId!,
+          isMain: true,
+          isActive: true
+        }
+      })
+
+      if (!mainBranch) {
+        mainBranch = await tx.branch.findFirst({
+          where: {
+            businessId: session.user.businessId!,
+            isActive: true
           }
+        })
+      }
+
+      // Buscar almacén principal
+      let mainWarehouse = mainBranch ? await tx.warehouse.findFirst({
+        where: {
+          branchId: mainBranch.id,
+          isMain: true,
+          isActive: true
+        }
+      }) : null
+
+      // Si no existe, buscar el primer almacén activo
+      if (!mainWarehouse && mainBranch) {
+        mainWarehouse = await tx.warehouse.findFirst({
+          where: {
+            branchId: mainBranch.id,
+            isActive: true
+          }
+        })
+      }
+
+      for (const item of sale.saleItems) {
+        // Verificar si el producto aún existe
+        const productExists = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { id: true, hasVariants: true }
         })
 
-        // Registrar movimiento de stock
-        await tx.stockMovement.create({
-          data: {
-            id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            productId: item.productId,
-            type: 'ENTRADA',
-            quantity: item.quantity,
-            reason: `Devolución por anulación de venta #${sale.ticketNumber}`,
-            userId: session.user.id,
-            // businessId: session.user.businessId // TODO: Agregar campo a schema si es necesario
+        if (!productExists) {
+          console.log(`Producto ${item.productId} ya no existe, no se revierte stock`)
+          continue
+        }
+
+        if (productExists.hasVariants) {
+          // Para variantes, registrar movimiento manual
+          // TODO: Necesitaríamos guardar variantId en SaleItem para revertir correctamente
+          await tx.stockMovement.create({
+            data: {
+              id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              productId: item.productId,
+              type: 'ENTRADA',
+              quantity: item.quantity,
+              reason: `Devolución por anulación de venta #${sale.ticketNumber} (revisar variante manualmente)`,
+              userId: session.user.id
+            }
+          })
+        } else if (mainWarehouse) {
+          // Revertir stock de producto simple
+          const productStock = await tx.productStock.findUnique({
+            where: {
+              productId_warehouseId: {
+                productId: item.productId,
+                warehouseId: mainWarehouse.id
+              }
+            }
+          })
+
+          if (productStock) {
+            await tx.productStock.update({
+              where: {
+                productId_warehouseId: {
+                  productId: item.productId,
+                  warehouseId: mainWarehouse.id
+                }
+              },
+              data: {
+                stock: { increment: item.quantity },
+                available: { increment: item.quantity }
+              }
+            })
           }
-        })
+
+          // Registrar movimiento de stock
+          await tx.stockMovement.create({
+            data: {
+              id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              productId: item.productId,
+              type: 'ENTRADA',
+              quantity: item.quantity,
+              reason: `Devolución por anulación de venta #${sale.ticketNumber}`,
+              userId: session.user.id
+            }
+          })
+        }
       }
 
       // 3. Si había cliente con crédito, revertir deuda

@@ -93,9 +93,12 @@ export async function GET(
       return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
     }
 
-    // Calcular métricas
+    // Calcular métricas (solo ventas completadas)
     const salesMetrics = await prisma.sale.aggregate({
-      where: { clientId: id },
+      where: { 
+        clientId: id,
+        status: 'COMPLETADO'
+      },
       _sum: { total: true },
       _count: true
     });

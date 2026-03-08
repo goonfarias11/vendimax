@@ -84,7 +84,10 @@ export async function GET(request: NextRequest) {
     const clientsWithMetrics = await Promise.all(
       clients.map(async (client) => {
         const salesData = await prisma.sale.aggregate({
-          where: { clientId: client.id },
+          where: { 
+            clientId: client.id,
+            status: 'COMPLETADO'
+          },
           _sum: { total: true },
           _count: true
         });

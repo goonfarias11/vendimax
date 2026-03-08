@@ -114,6 +114,7 @@ export async function GET(
         sales: {
           where: {
             paymentMethod: "CUENTA_CORRIENTE",
+            status: 'COMPLETADO'
           },
           orderBy: {
             createdAt: "desc",

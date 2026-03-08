@@ -28,11 +28,11 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    // Ventas por vendedor
+    // Ventas por vendedor (solo completadas)
     const salesBySeller = await prisma.sale.groupBy({
       by: ["userId"],
       where: {
-
+        status: 'COMPLETADO',
         ...dateFilter,
       },
       _sum: {
@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
         const sales = await prisma.sale.findMany({
           where: {
             userId: item.userId,
+            status: 'COMPLETADO',
             ...dateFilter,
           },
           include: {

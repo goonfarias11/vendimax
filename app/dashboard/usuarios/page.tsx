@@ -29,9 +29,11 @@ import {
   Ban, 
   CheckCircle, 
   ShieldAlert,
-  Eye
+  Eye,
+  UserCircle
 } from "lucide-react"
 import { toast } from "sonner"
+import { useImpersonation } from "@/hooks/useImpersonation"
 
 interface User {
   id: string
@@ -65,6 +67,7 @@ export default function UsersPage() {
   const canCreate = usePermission('users:create')
   const canEdit = usePermission('users:edit')
   const currentRole = useRole()
+  const { startImpersonation, isAdmin } = useImpersonation()
 
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -74,6 +77,7 @@ export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [saving, setSaving] = useState(false)
+  const [impersonating, setImpersonating] = useState<string | null>(null)
 
   // Formulario de crear usuario
   const [formData, setFormData] = useState({
@@ -177,6 +181,32 @@ export default function UsersPage() {
       role: user.role,
       isActive: user.isActive
     })
+  }
+
+  const handleImpersonate = async (user: User) => {
+    if (!isAdmin) {
+      toast.error('Solo los administradores pueden hacer esto')
+      return
+    }
+
+    if (!['VENDEDOR', 'GERENTE', 'SUPERVISOR'].includes(user.role)) {
+      toast.error('Solo puedes acceder a cuentas de vendedores, gerentes o supervisores')
+      return
+    }
+
+    if (!user.isActive) {
+      toast.error('No puedes acceder a usuarios suspendidos')
+      return
+    }
+
+    setImpersonating(user.id)
+    const result = await startImpersonation(user.id)
+    
+    if (!result.success) {
+      toast.error(result.error || 'Error al acceder a la cuenta')
+      setImpersonating(null)
+    }
+    // Si es exitoso, el hook redirigirá automáticamente
   }
 
   const resetForm = () => {
@@ -327,6 +357,21 @@ export default function UsersPage() {
                           onClick={() => openEditModal(user)}
                         >
                           <Edit className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {isAdmin && ['VENDEDOR', 'GERENTE', 'SUPERVISOR'].includes(user.role) && user.isActive && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleImpersonate(user)}
+                          disabled={impersonating === user.id}
+                          title="Acceder a esta cuenta"
+                        >
+                          {impersonating === user.id ? (
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                          ) : (
+                            <UserCircle className="h-4 w-4" />
+                          )}
                         </Button>
                       )}
                     </div>

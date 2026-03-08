@@ -101,13 +101,17 @@ export function DashboardContent() {
         return saleDate >= startOfMonth;
       });
 
+      // Filtrar solo ventas completadas (excluir canceladas)
+      const ventasHoyCompletadas = ventasHoy.filter((s: any) => s.status === 'COMPLETADO');
+      const ventasMesCompletadas = ventasMes.filter((s: any) => s.status === 'COMPLETADO');
+
       // Debug temporal - verificar datos
       console.log('=== DEBUG TOTALES DE VENTAS ===');
       console.log('Total de ventas:', salesSafe.length);
-      console.log('Ventas de hoy:', ventasHoy.length);
-      console.log('Ventas del mes:', ventasMes.length);
+      console.log('Ventas de hoy (completadas):', ventasHoyCompletadas.length);
+      console.log('Ventas del mes (completadas):', ventasMesCompletadas.length);
       console.table(
-        ventasHoy.slice(0, 5).map((s: any) => ({
+        ventasHoyCompletadas.slice(0, 5).map((s: any) => ({
           id: s.id?.slice(0, 8),
           total: s.total,
           parsed: safeNumber(s.total),
@@ -115,12 +119,12 @@ export function DashboardContent() {
         }))
       );
 
-      // Calcular totales con safeNumber (NUNCA usar Number directamente)
-      const totalHoy = ventasHoy.reduce(
+      // Calcular totales con safeNumber (solo ventas completadas)
+      const totalHoy = ventasHoyCompletadas.reduce(
         (sum: number, s: any) => sum + safeNumber(s.total),
         0
       );
-      const totalMes = ventasMes.reduce(
+      const totalMes = ventasMesCompletadas.reduce(
         (sum: number, s: any) => sum + safeNumber(s.total),
         0
       );
