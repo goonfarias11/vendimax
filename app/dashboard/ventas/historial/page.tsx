@@ -35,7 +35,8 @@ import {
   CreditCard,
   FileText,
   ShieldAlert,
-  AlertCircle
+  AlertCircle,
+  Printer
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -307,6 +308,124 @@ export default function SalesHistoryPage() {
     }
   }
 
+  const printTicket = (sale: SaleDetail) => {
+    const printWindow = window.open('', '_blank', 'width=300,height=600')
+    if (!printWindow) {
+      toast.error('Por favor permite ventanas emergentes para imprimir')
+      return
+    }
+
+    const ticketHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Ticket #${sale.ticketNumber}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+              font-family: 'Courier New', monospace;
+              font-size: 12px;
+              padding: 10px;
+              width: 280px;
+            }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .line { border-bottom: 1px dashed #000; margin: 5px 0; }
+            .row { display: flex; justify-content: space-between; margin: 3px 0; }
+            .item-row { margin: 5px 0; }
+            .total { font-size: 14px; font-weight: bold; margin-top: 10px; }
+            table { width: 100%; border-collapse: collapse; }
+            td { padding: 2px 0; }
+            .right { text-align: right; }
+            @media print {
+              body { width: 100%; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="center bold" style="font-size: 14px;">TICKET DE VENTA</div>
+          <div class="center">Ticket #${sale.ticketNumber}</div>
+          <div class="line"></div>
+          
+          <div class="row">
+            <span>Fecha:</span>
+            <span>${new Date(sale.createdAt).toLocaleDateString('es-AR', {
+              day: '2-digit',
+              month: '2-digit', 
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}</span>
+          </div>
+          <div class="row">
+            <span>Vendedor:</span>
+            <span>${sale.user.name}</span>
+          </div>
+          <div class="row">
+            <span>Cliente:</span>
+            <span>${sale.client?.name || 'Público General'}</span>
+          </div>
+          
+          <div class="line"></div>
+          <div class="bold">DETALLE DE PRODUCTOS</div>
+          <div class="line"></div>
+          
+          <table>
+            ${sale.saleItems.map(item => `
+              <tr>
+                <td colspan="3" class="bold">${item.product.name}</td>
+              </tr>
+              <tr>
+                <td>${item.quantity} x $${item.price.toFixed(2)}</td>
+                <td></td>
+                <td class="right">$${item.subtotal.toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </table>
+          
+          <div class="line"></div>
+          
+          <div class="row">
+            <span>Subtotal:</span>
+            <span>$${sale.subtotal.toFixed(2)}</span>
+          </div>
+          ${sale.discount > 0 ? `
+          <div class="row">
+            <span>Descuento:</span>
+            <span>-$${sale.discount.toFixed(2)}</span>
+          </div>
+          ` : ''}
+          
+          <div class="line"></div>
+          <div class="row total">
+            <span>TOTAL:</span>
+            <span>$${sale.total.toFixed(2)}</span>
+          </div>
+          
+          <div class="row">
+            <span>Pago:</span>
+            <span>${paymentMethodLabels[sale.paymentMethod]}</span>
+          </div>
+          
+          <div class="line"></div>
+          <div class="center" style="margin-top: 10px; font-size: 10px;">
+            Gracias por su compra
+          </div>
+          
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(() => window.close(), 100);
+            }
+          </script>
+        </body>
+      </html>
+    `
+
+    printWindow.document.write(ticketHTML)
+    printWindow.document.close()
+  }
+
   const filteredSales = safeArray<Sale>(sales).filter((sale: Sale) => {
     try {
       const searchLower = searchTerm.toLowerCase()
@@ -520,8 +639,27 @@ export default function SalesHistoryPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => viewSaleDetail(sale.id)}
+                          title="Ver detalle"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const response = await fetch(`/api/sales/${sale.id}`)
+                              if (response.ok) {
+                                const data = await response.json()
+                                printTicket(data)
+                              }
+                            } catch (error) {
+                              toast.error('Error al cargar la venta')
+                            }
+                          }}
+                          title="Imprimir ticket"
+                        >
+                          <Printer className="h-4 w-4" />
                         </Button>
                       </div>
                     </td>
@@ -644,8 +782,17 @@ export default function SalesHistoryPage() {
                 </div>
 
                 {/* Acciones */}
-                {canCancel && selectedSale.status === 'COMPLETADO' && (
-                  <div className="border-t pt-4">
+                <div className="border-t pt-4 space-y-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => printTicket(selectedSale)}
+                    className="w-full"
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Imprimir Ticket
+                  </Button>
+                  
+                  {canCancel && selectedSale.status === 'COMPLETADO' && (
                     <Button
                       variant="destructive"
                       onClick={() => setShowCancelModal(true)}
@@ -654,8 +801,8 @@ export default function SalesHistoryPage() {
                       <Ban className="h-4 w-4 mr-2" />
                       Anular Venta
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </>
           )}
