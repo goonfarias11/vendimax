@@ -9,9 +9,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -23,7 +24,7 @@ export async function GET(
 
     const stocks = await prisma.productStock.findMany({
       where: {
-        warehouseId: params.id,
+        warehouseId: id,
         ...(lowStock && {
           product: {
             minStock: { gt: 0 },

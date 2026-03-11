@@ -95,16 +95,71 @@ export async function POST(req: NextRequest) {
         });
       }
     } else {
+      // Para productos simples, el stock vive en ProductStock del almacen principal.
+      let mainWarehouse = await prisma.warehouse.findFirst({
+        where: {
+          branch: {
+            businessId,
+          },
+          isMain: true,
+          isActive: true,
+        },
+      });
+
+      if (!mainWarehouse) {
+        mainWarehouse = await prisma.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId,
+            },
+            isActive: true,
+          },
+        });
+      }
+
+      if (!mainWarehouse) {
+        return NextResponse.json(
+          { error: "No hay un almacén activo configurado" },
+          { status: 400 }
+        );
+      }
+
+      const currentStockRecord = await prisma.productStock.findUnique({
+        where: {
+          productId_warehouseId: {
+            productId,
+            warehouseId: mainWarehouse.id,
+          },
+        },
+      });
+
+      const currentStock = currentStockRecord?.stock || 0;
       const newStock =
         type === "ENTRADA"
-          ? product.stock + quantity
+          ? currentStock + quantity
           : type === "SALIDA"
-          ? product.stock - quantity
+          ? currentStock - quantity
           : quantity; // AJUSTE - nuevo valor absoluto
 
-      await prisma.product.update({
-        where: { id: productId },
-        data: { stock: Math.max(0, newStock) },
+      const finalStock = Math.max(0, newStock);
+
+      await prisma.productStock.upsert({
+        where: {
+          productId_warehouseId: {
+            productId,
+            warehouseId: mainWarehouse.id,
+          },
+        },
+        create: {
+          productId,
+          warehouseId: mainWarehouse.id,
+          stock: finalStock,
+          available: finalStock,
+        },
+        update: {
+          stock: finalStock,
+          available: Math.max(0, finalStock - (currentStockRecord?.reserved || 0)),
+        },
       });
     }
 

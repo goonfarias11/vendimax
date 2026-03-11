@@ -12,6 +12,22 @@ export interface AfipConfig {
   production: boolean
 }
 
+export interface AfipCredentials {
+  token: string
+  sign: string
+  expirationTime: Date
+}
+
+export interface WSAALoginTicketRequest {
+  service: string
+}
+
+export interface WSAALoginTicketResponse {
+  token: string
+  sign: string
+  expirationTime: string
+}
+
 export interface AfipAuth {
   token: string
   sign: string

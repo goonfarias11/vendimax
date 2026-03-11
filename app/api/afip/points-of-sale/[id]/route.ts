@@ -10,9 +10,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -27,7 +28,7 @@ export async function PUT(
     const { name, isActive, emissionType } = await request.json()
 
     const pointOfSale = await prisma.pointOfSale.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(name && { name }),
         ...(typeof isActive === 'boolean' && { isActive }),
@@ -47,9 +48,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -63,7 +65,7 @@ export async function DELETE(
 
     // Verificar si tiene facturas asociadas
     const invoiceCount = await prisma.afipInvoice.count({
-      where: { pointOfSaleId: params.id },
+      where: { pointOfSaleId: id },
     })
 
     if (invoiceCount > 0) {
@@ -74,7 +76,7 @@ export async function DELETE(
     }
 
     await prisma.pointOfSale.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ success: true })

@@ -144,11 +144,70 @@ export async function POST(request: NextRequest) {
 
     // Crear compra y actualizar stock en una transacción
     const purchase = await prisma.$transaction(async (tx) => {
+      const businessId = session.user.businessId;
+      if (!businessId) {
+        throw new Error("Usuario sin negocio asociado");
+      }
+
+      // Resolver almacén principal para registrar stock recibido.
+      let mainWarehouse = await tx.warehouse.findFirst({
+        where: {
+          branch: {
+            businessId,
+          },
+          isMain: true,
+          isActive: true,
+        },
+      });
+
+      if (!mainWarehouse) {
+        mainWarehouse = await tx.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId,
+            },
+            isActive: true,
+          },
+        });
+      }
+
+      if (!mainWarehouse) {
+        let mainBranch = await tx.branch.findFirst({
+          where: {
+            businessId,
+            isMain: true,
+          },
+        });
+
+        if (!mainBranch) {
+          mainBranch = await tx.branch.create({
+            data: {
+              businessId,
+              name: "Sucursal Principal",
+              code: "MAIN",
+              isMain: true,
+              isActive: true,
+            },
+          });
+        }
+
+        mainWarehouse = await tx.warehouse.create({
+          data: {
+            branchId: mainBranch.id,
+            name: "Almacen Principal",
+            code: "MAIN",
+            isMain: true,
+            isActive: true,
+          },
+        });
+      }
+
       // Crear la compra
       const newPurchase = await tx.purchase.create({
         data: {
           supplierId: validatedData.supplierId,
           userId: session.user.id,
+          warehouseId: mainWarehouse.id,
           subtotal: validatedData.subtotal,
           tax: validatedData.tax,
           total: validatedData.total,
@@ -170,12 +229,31 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        // Actualizar stock del producto (incrementar)
+        // Actualizar costo de referencia del producto
         await tx.product.update({
           where: { id: item.productId },
           data: {
-            stock: { increment: item.quantity },
             cost: item.cost, // Actualizar costo con el último precio de compra
+          },
+        });
+
+        // Actualizar stock físico en ProductStock
+        await tx.productStock.upsert({
+          where: {
+            productId_warehouseId: {
+              productId: item.productId,
+              warehouseId: mainWarehouse.id,
+            },
+          },
+          create: {
+            productId: item.productId,
+            warehouseId: mainWarehouse.id,
+            stock: item.quantity,
+            available: item.quantity,
+          },
+          update: {
+            stock: { increment: item.quantity },
+            available: { increment: item.quantity },
           },
         });
 
@@ -221,7 +299,6 @@ export async function POST(request: NextRequest) {
                 id: true,
                 name: true,
                 sku: true,
-                stock: true,
               },
             },
           },

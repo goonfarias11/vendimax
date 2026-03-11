@@ -17,6 +17,28 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get("endDate");
     const limit = parseInt(searchParams.get("limit") || "20");
 
+    const stockRows = await prisma.productStock.findMany({
+      where: {
+        warehouse: {
+          branch: {
+            businessId,
+          },
+        },
+      },
+      select: {
+        productId: true,
+        stock: true,
+      },
+    });
+
+    const stockByProduct = new Map<string, number>();
+    for (const row of stockRows) {
+      stockByProduct.set(
+        row.productId,
+        (stockByProduct.get(row.productId) || 0) + row.stock
+      );
+    }
+
     let dateFilter = {};
     if (startDate && endDate) {
       const start = new Date(startDate);
@@ -62,7 +84,6 @@ export async function GET(req: NextRequest) {
             businessId: true,
             name: true,
             sku: true,
-            stock: true,
             price: true,
             cost: true,
             category: {
@@ -85,7 +106,7 @@ export async function GET(req: NextRequest) {
           name: product.name,
           sku: product.sku,
           category: product.category?.name || "Sin categoría",
-          stock: product.stock,
+          stock: stockByProduct.get(item.productId) || 0,
           price: parseFloat(product.price.toString()),
           cost: parseFloat(product.cost.toString()),
           quantitySold: quantity,
@@ -109,7 +130,6 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         sku: true,
-        stock: true,
         minStock: true,
         category: {
           select: {
@@ -120,6 +140,10 @@ export async function GET(req: NextRequest) {
     });
     
     const lowStockProducts = allActiveProducts
+      .map((p) => ({
+        ...p,
+        stock: stockByProduct.get(p.id) || 0,
+      }))
       .filter(p => p.stock <= p.minStock)
       .sort((a, b) => a.stock - b.stock)
       .slice(0, 20);
@@ -137,7 +161,6 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         sku: true,
-        stock: true,
         price: true,
         createdAt: true,
         category: {
@@ -163,19 +186,24 @@ export async function GET(req: NextRequest) {
     const totalRevenue = validProducts.reduce((sum, p) => sum + (p?.revenue || 0), 0);
     const totalProfit = validProducts.reduce((sum, p) => sum + (p?.profit || 0), 0);
 
+    const productsWithoutSalesWithStock = productsWithoutSales.map((product) => ({
+      ...product,
+      stock: stockByProduct.get(product.id) || 0,
+    }));
+
     return NextResponse.json({
       period: startDate && endDate ? { start: startDate, end: endDate } : null,
       stats: {
         totalProducts,
         lowStockCount: lowStockProducts.length,
-        withoutSalesCount: productsWithoutSales.length,
+        withoutSalesCount: productsWithoutSalesWithStock.length,
         totalRevenue,
         totalProfit,
         overallMargin: totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0,
       },
       topProducts: validProducts,
       lowStockProducts,
-      productsWithoutSales,
+      productsWithoutSales: productsWithoutSalesWithStock,
     });
   } catch (error: any) {
     console.error("[GET /api/reports/products]", error);

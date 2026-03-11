@@ -31,7 +31,7 @@ export async function validateApiKey(req: NextRequest): Promise<{
     return { valid: false, error: 'API key inválida' }
   }
 
-  if (!keyRecord.active) {
+  if (!keyRecord.isActive) {
     return { valid: false, error: 'API key desactivada' }
   }
 
@@ -60,21 +60,16 @@ export async function logApiRequest(
   ipAddress?: string,
   userAgent?: string
 ): Promise<void> {
-  try {
-    await prisma.apiRequest.create({
-      data: {
-        apiKeyId,
-        endpoint,
-        method,
-        statusCode,
-        responseTime,
-        ipAddress: ipAddress || null,
-        userAgent: userAgent || null,
-      },
-    })
-  } catch (error) {
-    console.error('Error logging API request:', error)
-  }
+  // Modelo ApiRequest no existe en el schema actual.
+  console.debug('API request', {
+    apiKeyId,
+    endpoint,
+    method,
+    statusCode,
+    responseTime,
+    ipAddress: ipAddress || null,
+    userAgent: userAgent || null,
+  })
 }
 
 /**

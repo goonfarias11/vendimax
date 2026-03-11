@@ -12,7 +12,7 @@ import type {
   AfipConfig,
   WSAALoginTicketRequest,
   WSAALoginTicketResponse,
-} from './afip-types'
+} from './types'
 
 const WSAA_URLS = {
   production: 'https://wsaa.afip.gov.ar/ws/services/LoginCms',
@@ -117,6 +117,10 @@ export async function getAfipCredentials(config: AfipConfig): Promise<AfipCreden
   // Verificar caché
   if (cachedCredentials && cachedCredentials.expirationTime > new Date()) {
     return cachedCredentials
+  }
+
+  if (!config.keyPath) {
+    throw new Error('AFIP keyPath no configurado')
   }
 
   // Generar nuevo ticket

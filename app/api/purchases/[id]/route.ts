@@ -34,7 +34,6 @@ export async function GET(
                 id: true,
                 name: true,
                 sku: true,
-                stock: true,
                 price: true,
               },
             },
@@ -112,12 +111,26 @@ export async function DELETE(
     await prisma.$transaction(async (tx) => {
       // Revertir stock de cada producto
       for (const item of purchase.purchaseItems) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: {
-            stock: { decrement: item.quantity },
+        // El stock se guarda en ProductStock por almacen.
+        const productStock = await tx.productStock.findFirst({
+          where: {
+            productId: item.productId,
+            ...(purchase.warehouseId ? { warehouseId: purchase.warehouseId } : {}),
+          },
+          orderBy: {
+            createdAt: 'asc',
           },
         });
+
+        if (productStock) {
+          await tx.productStock.update({
+            where: { id: productStock.id },
+            data: {
+              stock: Math.max(0, productStock.stock - item.quantity),
+              available: Math.max(0, productStock.available - item.quantity),
+            },
+          });
+        }
 
         // Registrar movimiento de stock
         await tx.stockMovement.create({

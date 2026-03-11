@@ -14,40 +14,73 @@ export async function GET(req: NextRequest) {
     const businessId = session.user.businessId;
     const { searchParams } = new URL(req.url);
     const threshold = searchParams.get("threshold"); // Opcional: porcentaje custom (ej: 20%)
+    const warningThreshold = Number.isFinite(Number(threshold))
+      ? Number(threshold)
+      : 100;
 
-    // Productos con stock por debajo del mínimo configurado
-    const productsLowStock = await prisma.product.findMany({
+    // El stock real vive en ProductStock (puede haber varios almacenes por producto).
+    const stockRows = await prisma.productStock.findMany({
       where: {
-        businessId,
-        isActive: true,
-        stock: {
-          lte: prisma.product.fields.minStock, // stock <= minStock
+        warehouse: {
+          branch: {
+            businessId,
+          },
+        },
+        product: {
+          businessId,
+          isActive: true,
         },
       },
       include: {
-        category: {
-          select: {
-            name: true,
+        product: {
+          include: {
+            category: {
+              select: {
+                name: true,
+              },
+            },
           },
         },
       },
       orderBy: {
-        stock: "asc", // Los más críticos primero
+        stock: "asc",
       },
     });
 
-    // Calcular nivel de alerta por producto
-    const alerts = productsLowStock.map((product) => {
-      const stockPercentage = product.minStock > 0 
-        ? (product.stock / product.minStock) * 100 
+    const stockByProduct = new Map<
+      string,
+      {
+        product: (typeof stockRows)[number]["product"];
+        totalStock: number;
+      }
+    >();
+
+    for (const row of stockRows) {
+      const current = stockByProduct.get(row.productId);
+      if (current) {
+        current.totalStock += row.stock;
+      } else {
+        stockByProduct.set(row.productId, {
+          product: row.product,
+          totalStock: row.stock,
+        });
+      }
+    }
+
+    // Calcular alertas por producto en base al stock total.
+    const alerts = Array.from(stockByProduct.values())
+      .filter(({ product, totalStock }) => product.minStock > 0 && totalStock <= product.minStock)
+      .map(({ product, totalStock }) => {
+      const stockPercentage = product.minStock > 0
+        ? (totalStock / product.minStock) * 100
         : 0;
 
       let severity: "critical" | "warning" | "low";
-      if (product.stock === 0) {
+      if (totalStock === 0) {
         severity = "critical";
       } else if (stockPercentage < 50) {
         severity = "critical";
-      } else if (stockPercentage < 100) {
+      } else if (stockPercentage < warningThreshold) {
         severity = "warning";
       } else {
         severity = "low";
@@ -57,19 +90,20 @@ export async function GET(req: NextRequest) {
         id: product.id,
         name: product.name,
         sku: product.sku,
-        stock: product.stock,
+        stock: totalStock,
         minStock: product.minStock,
         maxStock: product.maxStock,
         unit: product.unit,
         category: product.category?.name || null,
         stockPercentage: Math.round(stockPercentage),
         severity,
-        missing: Math.max(0, product.minStock - product.stock),
+        missing: Math.max(0, product.minStock - totalStock),
         recommendedOrder: product.maxStock 
-          ? Math.max(0, product.maxStock - product.stock)
+          ? Math.max(0, product.maxStock - totalStock)
           : product.minStock * 2, // Sugerencia: ordenar el doble del mínimo
       };
-    });
+    })
+      .sort((a, b) => a.stock - b.stock);
 
     // Estadísticas generales
     const stats = {

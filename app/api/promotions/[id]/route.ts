@@ -11,9 +11,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -22,7 +23,7 @@ export async function GET(
 
     const promotion = await prisma.promotion.findFirst({
       where: {
-        id: params.id,
+        id,
         businessId: session.user.businessId!,
       },
     })
@@ -46,9 +47,10 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -90,7 +92,7 @@ export async function PUT(
     }
 
     const promotion = await prisma.promotion.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(name && { name }),
         ...(description !== undefined && { description }),
@@ -116,9 +118,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -135,7 +138,7 @@ export async function DELETE(
     }
 
     await prisma.promotion.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ success: true })

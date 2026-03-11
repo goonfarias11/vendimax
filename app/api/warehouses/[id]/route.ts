@@ -11,9 +11,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -28,7 +29,7 @@ export async function PUT(
     const { name, address, isActive, isMain } = await request.json()
 
     const warehouse = await prisma.warehouse.findUnique({
-      where: { id: params.id },
+      where: { id },
     })
 
     if (!warehouse) {
@@ -44,7 +45,7 @@ export async function PUT(
         where: {
           branchId: warehouse.branchId,
           isMain: true,
-          id: { not: params.id },
+          id: { not: id },
         },
         data: {
           isMain: false,
@@ -53,7 +54,7 @@ export async function PUT(
     }
 
     const updatedWarehouse = await prisma.warehouse.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(name && { name }),
         ...(address !== undefined && { address }),
@@ -83,9 +84,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -99,7 +101,7 @@ export async function DELETE(
 
     // Verificar si tiene ventas asociadas
     const salesCount = await prisma.sale.count({
-      where: { warehouseId: params.id },
+      where: { warehouseId: id },
     })
 
     if (salesCount > 0) {
@@ -112,7 +114,7 @@ export async function DELETE(
     // Verificar si tiene stock
     const stockCount = await prisma.productStock.count({
       where: { 
-        warehouseId: params.id,
+        warehouseId: id,
         stock: { gt: 0 },
       },
     })
@@ -126,7 +128,7 @@ export async function DELETE(
 
     // Verificar si es el depósito principal
     const warehouse = await prisma.warehouse.findUnique({
-      where: { id: params.id },
+      where: { id },
     })
 
     if (warehouse?.isMain) {
@@ -137,7 +139,7 @@ export async function DELETE(
     }
 
     await prisma.warehouse.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ success: true })

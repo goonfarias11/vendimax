@@ -64,18 +64,46 @@ export async function GET(req: NextRequest) {
       _count: { id: true },
     });
 
-    // Productos con bajo stock - filtrar en memoria
-    const allProducts = await prisma.product.findMany({
+    // Productos con bajo stock - sumar stock en todos los almacenes.
+    const stockRows = await prisma.productStock.findMany({
       where: {
-        businessId,
-        isActive: true,
+        warehouse: {
+          branch: {
+            businessId,
+          },
+        },
+        product: {
+          businessId,
+          isActive: true,
+        },
       },
       select: {
+        productId: true,
         stock: true,
-        minStock: true,
+        product: {
+          select: {
+            minStock: true,
+          },
+        },
       },
     });
-    const lowStockCount = allProducts.filter(p => p.stock <= p.minStock).length;
+
+    const stockByProduct = new Map<string, { minStock: number; stock: number }>();
+    for (const row of stockRows) {
+      const current = stockByProduct.get(row.productId);
+      if (current) {
+        current.stock += row.stock;
+      } else {
+        stockByProduct.set(row.productId, {
+          minStock: row.product.minStock,
+          stock: row.stock,
+        });
+      }
+    }
+
+    const lowStockCount = Array.from(stockByProduct.values()).filter(
+      (p) => p.minStock > 0 && p.stock <= p.minStock
+    ).length;
 
     // Clientes con deuda
     const clientsWithDebt = await prisma.client.count({

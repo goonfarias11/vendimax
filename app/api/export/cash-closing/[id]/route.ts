@@ -9,9 +9,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
     if (!session?.user?.businessId) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
@@ -20,7 +21,7 @@ export async function GET(
     // Verificar que pertenezca al negocio
     const closing = await prisma.cashClosing.findFirst({
       where: {
-        id: params.id,
+        id,
         businessId: session.user.businessId,
       },
     })

@@ -52,7 +52,6 @@ export async function POST(req: NextRequest) {
             sku: demoSku,
             price: 1000,
             cost: 500,
-            stock: 100,
             categoryId: demoCategory.id,
             isActive: true,
           },

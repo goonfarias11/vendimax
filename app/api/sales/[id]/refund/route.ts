@@ -105,6 +105,24 @@ export async function POST(
 
     // Crear devolución en transacción
     const refund = await prisma.$transaction(async (tx) => {
+      let targetWarehouseId = sale.warehouseId || null;
+
+      if (!targetWarehouseId) {
+        const mainWarehouse = await tx.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId: sale.businessId,
+            },
+            isMain: true,
+            isActive: true,
+          },
+        });
+
+        if (mainWarehouse) {
+          targetWarehouseId = mainWarehouse.id;
+        }
+      }
+
       // 1. Crear registro de devolución
       const newRefund = await tx.refund.create({
         data: {
@@ -133,12 +151,26 @@ export async function POST(
 
         // 3. Devolver stock si restockItems = true
         if (validatedData.restockItems) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stock: { increment: item.quantity },
-            },
-          });
+          if (targetWarehouseId) {
+            await tx.productStock.upsert({
+              where: {
+                productId_warehouseId: {
+                  productId: item.productId,
+                  warehouseId: targetWarehouseId,
+                },
+              },
+              create: {
+                productId: item.productId,
+                warehouseId: targetWarehouseId,
+                stock: item.quantity,
+                available: item.quantity,
+              },
+              update: {
+                stock: { increment: item.quantity },
+                available: { increment: item.quantity },
+              },
+            });
+          }
 
           // Registrar movimiento de stock
           await tx.stockMovement.create({

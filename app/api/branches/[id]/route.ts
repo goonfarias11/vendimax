@@ -10,9 +10,10 @@ import { prisma } from '@/lib/prisma'
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -32,7 +33,7 @@ export async function PUT(
         where: {
           businessId: session.user.businessId!,
           isMain: true,
-          id: { not: params.id },
+          id: { not: id },
         },
         data: {
           isMain: false,
@@ -41,7 +42,7 @@ export async function PUT(
     }
 
     const branch = await prisma.branch.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(name && { name }),
         ...(address !== undefined && { address }),
@@ -63,9 +64,10 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const session = await auth()
 
     if (!session?.user) {
@@ -79,7 +81,7 @@ export async function DELETE(
 
     // Verificar si tiene ventas asociadas
     const salesCount = await prisma.sale.count({
-      where: { branchId: params.id },
+      where: { branchId: id },
     })
 
     if (salesCount > 0) {
@@ -91,7 +93,7 @@ export async function DELETE(
 
     // Verificar si es la sucursal principal
     const branch = await prisma.branch.findUnique({
-      where: { id: params.id },
+      where: { id },
     })
 
     if (branch?.isMain) {
@@ -102,7 +104,7 @@ export async function DELETE(
     }
 
     await prisma.branch.delete({
-      where: { id: params.id },
+      where: { id },
     })
 
     return NextResponse.json({ success: true })
