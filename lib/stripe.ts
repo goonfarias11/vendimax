@@ -3,9 +3,21 @@ import Stripe from 'stripe';
 // Lazy initialization para evitar errores durante build
 let stripeInstance: Stripe | null = null;
 
+export function isStripeEnabled(): boolean {
+  return Boolean(process.env.STRIPE_SECRET_KEY);
+}
+
+function assertStripeEnabled(): void {
+  if (!isStripeEnabled()) {
+    throw new Error('Stripe está deshabilitado: falta STRIPE_SECRET_KEY');
+  }
+}
+
 export function getStripe(): Stripe {
+  assertStripeEnabled();
+
   if (!stripeInstance) {
-    const stripeSecretKey = process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder';
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY as string;
     stripeInstance = new Stripe(stripeSecretKey, {
       apiVersion: '2025-11-17.clover',
       typescript: true,

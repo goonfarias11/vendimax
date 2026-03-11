@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createCheckoutSession } from '@/lib/stripe';
+import { isStripeEnabled } from '@/lib/stripe';
 import { z } from 'zod';
 
 const createCheckoutSchema = z.object({
@@ -12,6 +13,13 @@ const createCheckoutSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isStripeEnabled()) {
+      return NextResponse.json(
+        { error: 'Stripe está deshabilitado en esta instancia' },
+        { status: 503 }
+      );
+    }
+
     const session = await auth();
     
     if (!session?.user?.id) {

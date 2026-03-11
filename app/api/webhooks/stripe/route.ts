@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
+import { isStripeEnabled } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
 import Stripe from 'stripe';
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
-if (!WEBHOOK_SECRET) {
-  console.warn('STRIPE_WEBHOOK_SECRET no está configurado');
-}
-
 export async function POST(req: NextRequest) {
   try {
+    if (!isStripeEnabled() || !WEBHOOK_SECRET) {
+      return NextResponse.json({ received: true, disabled: true });
+    }
+
     const body = await req.text();
     const signature = req.headers.get('stripe-signature');
 
