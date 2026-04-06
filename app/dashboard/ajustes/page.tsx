@@ -19,8 +19,6 @@ import {
   Building2,
   Save,
   Upload,
-  Settings,
-  Shield,
   Receipt,
   MapPin,
   Percent,
@@ -28,13 +26,12 @@ import {
   FileText,
   Plus,
   Edit,
-  Trash2,
-  Check,
-  X
+  Trash2
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { hasPermission } from "@/lib/permissions";
+import Image from "next/image";
+import { hasPermission, ROLE_PERMISSIONS, type Role } from "@/lib/permissions";
 import { toast } from "sonner";
 
 type BusinessSettings = {
@@ -47,7 +44,7 @@ type BusinessSettings = {
   stockMinimoGlobal: number;
 };
 
-type AfipConfig = {
+type ArcaConfig = {
   id?: string;
   cuit: string;
   razonSocial: string;
@@ -85,6 +82,10 @@ type PrinterConfig = {
   autoOpen: boolean;
 };
 
+const isRole = (value: unknown): value is Role => {
+  return typeof value === "string" && value in ROLE_PERMISSIONS;
+};
+
 export default function AjustesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -103,7 +104,7 @@ export default function AjustesPage() {
     stockMinimoGlobal: 5,
   });
 
-  const [afipConfig, setAfipConfig] = useState<AfipConfig>({
+  const [arcaConfig, setArcaConfig] = useState<ArcaConfig>({
     cuit: "",
     razonSocial: "",
     production: false,
@@ -132,8 +133,8 @@ export default function AjustesPage() {
   });
 
   // Verificar permisos
-  const canEditSettings = session?.user?.role 
-    ? hasPermission(session.user.role as any, 'settings:edit_business')
+  const canEditSettings = isRole(session?.user?.role)
+    ? hasPermission(session.user.role, 'settings:edit_business')
     : false;
 
   useEffect(() => {
@@ -157,23 +158,37 @@ export default function AjustesPage() {
     try {
       setLoading(true);
       
-      // Cargar configuración general
-      const savedSettings = localStorage.getItem("businessSettings");
-      if (savedSettings) {
-        setSettings(JSON.parse(savedSettings));
+      // Configuración general desde API + fallback local para stock mínimo
+      const localBusiness = localStorage.getItem("businessSettings");
+      const parsedLocal = localBusiness ? JSON.parse(localBusiness) : null;
+
+      const businessRes = await fetch("/api/business");
+      if (businessRes.ok) {
+        const business = await businessRes.json();
+        setSettings({
+          nombreComercio: business.name || "",
+          cuit: business.taxId || "",
+          direccion: business.address || "",
+          telefono: business.phone || "",
+          email: business.email || "",
+          logo: business.logo || "",
+          stockMinimoGlobal: parsedLocal?.stockMinimoGlobal ?? 5,
+        });
+      } else if (parsedLocal) {
+        setSettings(parsedLocal);
       }
 
-      // Cargar configuración AFIP
-      const afipResponse = await fetch('/api/afip/config');
-      if (afipResponse.ok) {
-        const afipData = await afipResponse.json();
-        if (afipData) {
-          setAfipConfig(afipData);
+      // Cargar configuración ARCA
+      const arcaResponse = await fetch('/api/arca/config');
+      if (arcaResponse.ok) {
+        const arcaData = await arcaResponse.json();
+        if (arcaData) {
+          setArcaConfig(arcaData);
         }
       }
 
       // Cargar puntos de venta
-      const posResponse = await fetch('/api/afip/points-of-sale');
+      const posResponse = await fetch('/api/arca/points-of-sale');
       if (posResponse.ok) {
         const posData = await posResponse.json();
         setPointsOfSale(posData);
@@ -215,33 +230,65 @@ export default function AjustesPage() {
   const handleSaveGeneral = async () => {
     try {
       setSaving(true);
-      localStorage.setItem("businessSettings", JSON.stringify(settings));
+      const response = await fetch("/api/business", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: settings.nombreComercio,
+          taxId: settings.cuit || null,
+          address: settings.direccion || null,
+          phone: settings.telefono || null,
+          email: settings.email,
+          logo: settings.logo || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "No se pudo guardar la configuración");
+      }
+
+      // Persistir preferencias locales adicionales
+      localStorage.setItem(
+        "businessSettings",
+        JSON.stringify({
+          stockMinimoGlobal: settings.stockMinimoGlobal,
+          logo: settings.logo,
+        })
+      );
+
       toast.success("Configuración general guardada");
-    } catch (error) {
+    } catch {
       toast.error("Error al guardar la configuración");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveAfip = async () => {
+  const handleSaveArca = async () => {
     try {
       setSaving(true);
-      const response = await fetch('/api/afip/config', {
-        method: afipConfig.id ? 'PUT' : 'POST',
+      const response = await fetch('/api/arca/config', {
+        method: arcaConfig.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(afipConfig)
+        body: JSON.stringify(arcaConfig)
       });
 
       if (!response.ok) {
-        throw new Error('Error al guardar configuración AFIP');
+        throw new Error('Error al guardar configuración ARCA');
       }
 
       const data = await response.json();
-      setAfipConfig(data);
-      toast.success("Configuración AFIP guardada");
-    } catch (error) {
-      toast.error("Error al guardar configuración AFIP");
+      const savedConfig = data?.config ?? data;
+      if (savedConfig && typeof savedConfig === 'object') {
+        setArcaConfig((prev) => ({
+          ...prev,
+          ...savedConfig,
+        }));
+      }
+      toast.success("Configuración ARCA guardada");
+    } catch {
+      toast.error("Error al guardar configuración ARCA");
     } finally {
       setSaving(false);
     }
@@ -252,7 +299,7 @@ export default function AjustesPage() {
       setSaving(true);
       localStorage.setItem("taxConfig", JSON.stringify(taxConfig));
       toast.success("Configuración de impuestos guardada");
-    } catch (error) {
+    } catch {
       toast.error("Error al guardar configuración de impuestos");
     } finally {
       setSaving(false);
@@ -264,7 +311,7 @@ export default function AjustesPage() {
       setSaving(true);
       localStorage.setItem("receiptSettings", JSON.stringify(receiptSettings));
       toast.success("Configuración de comprobantes guardada");
-    } catch (error) {
+    } catch {
       toast.error("Error al guardar configuración de comprobantes");
     } finally {
       setSaving(false);
@@ -276,7 +323,7 @@ export default function AjustesPage() {
       setSaving(true);
       localStorage.setItem("printerConfig", JSON.stringify(printerConfig));
       toast.success("Configuración de impresora guardada");
-    } catch (error) {
+    } catch {
       toast.error("Error al guardar configuración de impresora");
     } finally {
       setSaving(false);
@@ -322,9 +369,9 @@ export default function AjustesPage() {
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">General</span>
           </TabsTrigger>
-          <TabsTrigger value="afip" className="flex items-center gap-2">
+          <TabsTrigger value="arca" className="flex items-center gap-2">
             <Receipt className="h-4 w-4" />
-            <span className="hidden sm:inline">AFIP</span>
+            <span className="hidden sm:inline">ARCA</span>
           </TabsTrigger>
           <TabsTrigger value="branches" className="flex items-center gap-2">
             <MapPin className="h-4 w-4" />
@@ -461,9 +508,12 @@ export default function AjustesPage() {
               </div>
               {settings.logo && (
                 <div className="w-32 h-32 border-2 border-gray-200 rounded-lg overflow-hidden">
-                  <img
+                  <Image
                     src={settings.logo}
                     alt="Logo del negocio"
+                    width={128}
+                    height={128}
+                    unoptimized
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -472,36 +522,36 @@ export default function AjustesPage() {
           </Card>
         </TabsContent>
 
-        {/* AFIP */}
-        <TabsContent value="afip" className="space-y-6">
+        {/* ARCA */}
+        <TabsContent value="arca" className="space-y-6">
           <Card className="p-6">
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                 <Receipt className="h-6 w-6 text-green-600" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Configuración AFIP</h2>
-                <p className="text-sm text-gray-500">Facturación electrónica con AFIP</p>
+                <h2 className="text-xl font-semibold text-gray-900">Configuración ARCA</h2>
+                <p className="text-sm text-gray-500">Facturación electrónica con ARCA</p>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="afipCuit">CUIT *</Label>
+                  <Label htmlFor="arcaCuit">CUIT *</Label>
                   <Input
-                    id="afipCuit"
-                    value={afipConfig.cuit}
-                    onChange={(e) => setAfipConfig({ ...afipConfig, cuit: e.target.value })}
+                    id="arcaCuit"
+                    value={arcaConfig.cuit}
+                    onChange={(e) => setArcaConfig({ ...arcaConfig, cuit: e.target.value })}
                     placeholder="20-12345678-9"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="afipRazonSocial">Razón Social *</Label>
+                  <Label htmlFor="arcaRazonSocial">Razón Social *</Label>
                   <Input
-                    id="afipRazonSocial"
-                    value={afipConfig.razonSocial}
-                    onChange={(e) => setAfipConfig({ ...afipConfig, razonSocial: e.target.value })}
+                    id="arcaRazonSocial"
+                    value={arcaConfig.razonSocial}
+                    onChange={(e) => setArcaConfig({ ...arcaConfig, razonSocial: e.target.value })}
                     placeholder="Mi Empresa S.A."
                   />
                 </div>
@@ -509,37 +559,37 @@ export default function AjustesPage() {
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <Label htmlFor="afipProduction">Modo Producción</Label>
+                  <Label htmlFor="arcaProduction">Modo Producción</Label>
                   <p className="text-sm text-gray-500">
-                    Activa para usar el servicio real de AFIP (requiere certificado)
+                    Activa para usar el servicio real de ARCA (requiere certificado)
                   </p>
                 </div>
                 <Switch
-                  id="afipProduction"
-                  checked={afipConfig.production}
-                  onCheckedChange={(checked: boolean) => setAfipConfig({ ...afipConfig, production: checked })}
+                  id="arcaProduction"
+                  checked={arcaConfig.production}
+                  onCheckedChange={(checked: boolean) => setArcaConfig({ ...arcaConfig, production: checked })}
                 />
               </div>
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                 <div>
-                  <Label htmlFor="afipActive">Activo</Label>
+                  <Label htmlFor="arcaActive">Activo</Label>
                   <p className="text-sm text-gray-500">
                     Permite generar facturas electrónicas
                   </p>
                 </div>
                 <Switch
-                  id="afipActive"
-                  checked={afipConfig.isActive}
-                  onCheckedChange={(checked: boolean) => setAfipConfig({ ...afipConfig, isActive: checked })}
+                  id="arcaActive"
+                  checked={arcaConfig.isActive}
+                  onCheckedChange={(checked: boolean) => setArcaConfig({ ...arcaConfig, isActive: checked })}
                 />
               </div>
             </div>
 
             <div className="mt-6 flex justify-end">
-              <Button onClick={handleSaveAfip} disabled={saving}>
+              <Button onClick={handleSaveArca} disabled={saving}>
                 <Save className="mr-2 h-4 w-4" />
-                {saving ? "Guardando..." : "Guardar AFIP"}
+                {saving ? "Guardando..." : "Guardar ARCA"}
               </Button>
             </div>
           </Card>
@@ -784,7 +834,14 @@ export default function AjustesPage() {
                   <div className="text-center space-y-2">
                     {receiptSettings.showLogo && settings.logo && (
                       <div className="flex justify-center mb-4">
-                        <img src={settings.logo} alt="Logo" className="h-16 w-16 object-contain" />
+                        <Image
+                          src={settings.logo}
+                          alt="Logo"
+                          width={64}
+                          height={64}
+                          unoptimized
+                          className="h-16 w-16 object-contain"
+                        />
                       </div>
                     )}
                     <p className="font-bold">{settings.nombreComercio || "Mi Negocio"}</p>

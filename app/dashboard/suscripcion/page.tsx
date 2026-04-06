@@ -46,11 +46,7 @@ export default function SuscripcionPage() {
   const [selectedCycle, setSelectedCycle] = useState<'monthly' | 'yearly'>('monthly')
   const [selectedAddons, setSelectedAddons] = useState<string[]>([])
 
-  useEffect(() => {
-    loadData()
-  }, [])
-
-  const loadData = async () => {
+  async function loadData() {
     try {
       const res = await fetch('/api/subscriptions-ars/create')
       const data = await res.json()
@@ -62,6 +58,10 @@ export default function SuscripcionPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadData()
+  }, [])
 
   const handleCreateSubscription = async () => {
     if (!selectedPlan) {

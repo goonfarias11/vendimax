@@ -269,10 +269,10 @@ export default function HelpPage() {
               <div>
                 <p className="font-medium">Email de Soporte</p>
                 <a
-                  href="mailto:soporte@vendimax.com"
+                  href="mailto:soportevendimax@gmail.com"
                   className="text-blue-600 hover:underline"
                 >
-                  soporte@vendimax.com
+                  soportevendimax@gmail.com
                 </a>
               </div>
             </div>
@@ -280,14 +280,14 @@ export default function HelpPage() {
               <Phone className="h-5 w-5 text-blue-600" />
               <div>
                 <p className="font-medium">Teléfono</p>
-                <a href="tel:+5491112345678" className="text-blue-600 hover:underline">
-                  +54 9 11 1234-5678
+                <a href="tel:3543515007" className="text-blue-600 hover:underline">
+                  3543515007
                 </a>
               </div>
             </div>
             <div className="pt-4">
               <Button className="w-full sm:w-auto" asChild>
-                <a href="mailto:soporte@vendimax.com">Contactar Soporte</a>
+                <a href="mailto:soportevendimax@gmail.com">Contactar Soporte</a>
               </Button>
             </div>
           </CardContent>

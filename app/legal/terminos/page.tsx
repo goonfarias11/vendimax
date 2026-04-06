@@ -23,7 +23,7 @@ export default function TerminosPage() {
                 1. Aceptación de los Términos
               </h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Al acceder y usar VendiMax ("el Servicio"), aceptas estar sujeto a estos Términos y Condiciones ("Términos"). 
+                Al acceder y usar VendiMax (&quot;el Servicio&quot;), aceptas estar sujeto a estos Términos y Condiciones (&quot;Términos&quot;). 
                 Si no estás de acuerdo con alguna parte de estos términos, no debes usar nuestro servicio.
               </p>
               <p className="text-gray-700 leading-relaxed">
@@ -127,7 +127,7 @@ export default function TerminosPage() {
                 7. Limitación de Responsabilidad
               </h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                VendiMax se proporciona "tal cual" sin garantías de ningún tipo. No garantizamos que el servicio será 
+                VendiMax se proporciona &quot;tal cual&quot; sin garantías de ningún tipo. No garantizamos que el servicio será 
                 ininterrumpido, seguro o libre de errores.
               </p>
               <p className="text-gray-700 leading-relaxed mb-4">

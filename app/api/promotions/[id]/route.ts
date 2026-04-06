@@ -36,10 +36,11 @@ export async function GET(
     }
 
     return NextResponse.json(promotion)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener promoción'
     console.error('Error al obtener promoción:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener promoción' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -107,10 +108,11 @@ export async function PUT(
     })
 
     return NextResponse.json(promotion)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al actualizar promoción'
     console.error('Error al actualizar promoción:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al actualizar promoción' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -142,10 +144,11 @@ export async function DELETE(
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al eliminar promoción'
     console.error('Error al eliminar promoción:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al eliminar promoción' },
+      { error: message },
       { status: 500 }
     )
   }

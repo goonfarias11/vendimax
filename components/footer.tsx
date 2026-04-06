@@ -22,16 +22,36 @@ export function Footer() {
               La solución completa de punto de venta para negocios modernos que buscan eficiencia y crecimiento.
             </p>
             <div className="flex space-x-4">
-              <a href="#" className="hover:text-primary transition-colors">
+              <a
+                href="https://www.facebook.com/gonzaloo.hhfa/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors"
+              >
                 <Facebook className="h-5 w-5" />
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a
+                href="https://x.com/farias_goon"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors"
+              >
                 <Twitter className="h-5 w-5" />
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a
+                href="https://www.instagram.com/goondev_/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors"
+              >
                 <Instagram className="h-5 w-5" />
               </a>
-              <a href="#" className="hover:text-primary transition-colors">
+              <a
+                href="https://www.linkedin.com/in/gonzalo-farias-8a584723b/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-primary transition-colors"
+              >
                 <Linkedin className="h-5 w-5" />
               </a>
             </div>
@@ -74,7 +94,7 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/ayuda" className="hover:text-primary transition-colors">
+                <Link href="/help" className="hover:text-primary transition-colors">
                   Centro de Ayuda
                 </Link>
               </li>
@@ -84,8 +104,8 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/api" className="hover:text-primary transition-colors">
-                  Documentación API
+                <Link href="/docs/api" className="hover:text-primary transition-colors">
+                  Documentacion API
                 </Link>
               </li>
             </ul>
@@ -97,19 +117,19 @@ export function Footer() {
             <ul className="space-y-3 text-sm">
               <li className="flex items-start">
                 <Mail className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-                <a href="mailto:hola@vendimax.com" className="hover:text-primary transition-colors">
-                  hola@vendimax.com
+                <a href="mailto:soportevendimax@gmail.com" className="hover:text-primary transition-colors">
+                  soportevendimax@gmail.com
                 </a>
               </li>
               <li className="flex items-start">
                 <Phone className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-                <a href="tel:+5491112345678" className="hover:text-primary transition-colors">
-                  +54 9 11 1234-5678
+                <a href="tel:3543515007" className="hover:text-primary transition-colors">
+                  3543515007
                 </a>
               </li>
               <li className="flex items-start">
                 <MapPin className="h-5 w-5 mr-2 flex-shrink-0 mt-0.5" />
-                <span>Buenos Aires, Argentina</span>
+                <span>Córdoba, Argentina</span>
               </li>
             </ul>
           </div>
@@ -138,3 +158,4 @@ export function Footer() {
     </footer>
   );
 }
+

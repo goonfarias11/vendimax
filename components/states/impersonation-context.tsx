@@ -37,34 +37,34 @@ const ImpersonationContext = createContext<ImpersonationContextType>({
   effectiveUser: null
 })
 
+function readImpersonationFromStorage(): ImpersonationData | null {
+  if (typeof window === "undefined") {
+    return null
+  }
+
+  const stored = sessionStorage.getItem('impersonation')
+  if (!stored) {
+    return null
+  }
+
+  try {
+    return JSON.parse(stored) as ImpersonationData
+  } catch {
+    sessionStorage.removeItem('impersonation')
+    return null
+  }
+}
+
 export function ImpersonationProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession()
-  const [impersonationData, setImpersonationData] = useState<ImpersonationData | null>(null)
+  const [impersonationData, setImpersonationData] = useState<ImpersonationData | null>(
+    readImpersonationFromStorage
+  )
 
   useEffect(() => {
-    // Cargar datos de impersonación desde sessionStorage
-    const stored = sessionStorage.getItem('impersonation')
-    if (stored) {
-      try {
-        const data = JSON.parse(stored)
-        setImpersonationData(data)
-      } catch (e) {
-        sessionStorage.removeItem('impersonation')
-      }
-    }
-
     // Escuchar cambios en sessionStorage (para actualizar en todas las pestañas)
     const handleStorageChange = () => {
-      const stored = sessionStorage.getItem('impersonation')
-      if (stored) {
-        try {
-          setImpersonationData(JSON.parse(stored))
-        } catch (e) {
-          setImpersonationData(null)
-        }
-      } else {
-        setImpersonationData(null)
-      }
+      setImpersonationData(readImpersonationFromStorage())
     }
 
     window.addEventListener('storage', handleStorageChange)

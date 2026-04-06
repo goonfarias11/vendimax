@@ -5,7 +5,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { authOptions } from '@/lib/auth'
 import { promotionService, type CartItem } from '@/lib/promotions'
 
 export async function POST(request: NextRequest) {
@@ -51,10 +50,11 @@ export async function POST(request: NextRequest) {
       total,
       appliedPromotions,
     })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al evaluar promociones'
     console.error('Error al evaluar promociones:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al evaluar promociones' },
+      { error: message },
       { status: 500 }
     )
   }

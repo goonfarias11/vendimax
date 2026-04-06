@@ -31,7 +31,21 @@ export default function ReportesPage() {
   const fetchReportsData = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/sales");
+      const res = await fetch("/api/sales", { credentials: "include" });
+      if (res.status === 401) {
+        // sesión expirada
+        setSalesData([]);
+        setStats({
+          totalSales: 0,
+          totalProducts: 0,
+          totalClients: 0,
+          weekSalesData: [],
+          monthData: [],
+          paymentMethods: [],
+        });
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error("Error al cargar datos");
       
       const data = await res.json();
@@ -50,7 +64,11 @@ export default function ReportesPage() {
       }, 0);
 
       // Contar clientes únicos
-      const uniqueClients = new Set(sales.map((s: any) => s.clientId).filter(Boolean));
+      const uniqueClients = new Set(
+        sales
+          .map((s: any) => s.client?.id)
+          .filter(Boolean)
+      );
 
       // Ventas por día de la semana
       const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];

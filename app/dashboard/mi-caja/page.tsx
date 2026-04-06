@@ -83,7 +83,13 @@ export default function MiCajaPage() {
   const loadCurrentCash = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/cash/current')
+      const response = await fetch('/api/cash/current', { credentials: "include" })
+      if (response.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/dashboard/mi-caja")}`)
+        setCurrentCash(null)
+        setLoading(false)
+        return
+      }
       if (!response.ok) throw new Error('Error al cargar caja')
 
       const data = await response.json()

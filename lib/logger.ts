@@ -3,10 +3,10 @@ type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 class Logger {
   private isDev = process.env.NODE_ENV === 'development'
 
-  private sanitize(data: any): any {
-    if (!data || typeof data !== 'object') return data
+  private sanitize(data: unknown): unknown {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return data
     
-    const sanitized = { ...data }
+    const sanitized: Record<string, unknown> = { ...(data as Record<string, unknown>) }
     const sensitiveKeys = ['password', 'passwordHash', 'token', 'secret', 'apiKey', 'creditCard']
     
     sensitiveKeys.forEach(key => {
@@ -18,7 +18,7 @@ class Logger {
     return sanitized
   }
 
-  private log(level: LogLevel, message: string, ...args: any[]) {
+  private log(level: LogLevel, message: string, ...args: unknown[]) {
     if (!this.isDev && level === 'debug') return
     if (!this.isDev && level === 'info') return // No info en producción
 
@@ -40,19 +40,19 @@ class Logger {
     }
   }
 
-  info(message: string, ...args: any[]) {
+  info(message: string, ...args: unknown[]) {
     this.log('info', message, ...args)
   }
 
-  warn(message: string, ...args: any[]) {
+  warn(message: string, ...args: unknown[]) {
     this.log('warn', message, ...args)
   }
 
-  error(message: string, ...args: any[]) {
+  error(message: string, ...args: unknown[]) {
     this.log('error', message, ...args)
   }
 
-  debug(message: string, ...args: any[]) {
+  debug(message: string, ...args: unknown[]) {
     this.log('debug', message, ...args)
   }
 }

@@ -108,7 +108,13 @@ export default function UsersPage() {
       if (roleFilter !== 'all') params.append('role', roleFilter)
       if (statusFilter !== 'all') params.append('status', statusFilter)
       
-      const response = await fetch(`/api/users?${params}`)
+      const response = await fetch(`/api/users?${params}`, { credentials: "include" })
+      if (response.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/dashboard/usuarios")}`)
+        setUsers([])
+        setLoading(false)
+        return
+      }
       if (!response.ok) throw new Error('Error al cargar usuarios')
       
       const data = await response.json()

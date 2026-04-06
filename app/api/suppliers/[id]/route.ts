@@ -1,26 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { updateSupplierSchema } from "@/lib/validations/supplier";
-import { logger } from "@/lib/logger";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { logger } from "@/lib/logger"
+import { ZodError } from "zod"
+import { requireTenant } from "@/lib/security/tenant"
+import { supplierSchema } from "@/lib/validation/supplier.schema"
 
 // GET /api/suppliers/[id] - Obtener detalle de proveedor
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    const { id } = await params;
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+    const { id } = await params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
-
-    const supplier = await prisma.supplier.findUnique({
-      where: { id },
+    const supplier = await prisma.supplier.findFirst({
+      where: {
+        id,
+        businessId: tenant,
+      },
       include: {
         purchases: {
+          where: { businessId: tenant },
           include: {
             user: {
               select: {
@@ -49,20 +51,13 @@ export async function GET(
           },
         },
       },
-    });
+    })
 
     if (!supplier) {
-      return NextResponse.json(
-        { error: "Proveedor no encontrado" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 })
     }
 
-    // Calcular estadísticas
-    const totalPurchased = supplier.purchases.reduce(
-      (sum, p) => sum + Number(p.total),
-      0
-    );
+    const totalPurchased = supplier.purchases.reduce((sum, p) => sum + Number(p.total), 0)
 
     const formattedSupplier = {
       ...supplier,
@@ -78,101 +73,74 @@ export async function GET(
           subtotal: Number(item.subtotal),
         })),
       })),
-    };
+    }
 
-    return NextResponse.json(formattedSupplier);
-  } catch (error: any) {
-    logger.error("Error al obtener proveedor:", error);
-    return NextResponse.json(
-      { error: "Error al obtener proveedor", details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json(formattedSupplier)
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // PATCH /api/suppliers/[id] - Actualizar proveedor
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    const { id } = await params;
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+    const { id } = await params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const body = await request.json()
+    const validatedData = supplierSchema.partial().parse(body)
 
-    const body = await request.json();
-    const validatedData = updateSupplierSchema.parse(body);
-
-    // Verificar que el proveedor existe
-    const existing = await prisma.supplier.findUnique({
-      where: { id },
-    });
+    const existing = await prisma.supplier.findFirst({
+      where: { businessId: tenant, id },
+    })
 
     if (!existing) {
-      return NextResponse.json(
-        { error: "Proveedor no encontrado" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 })
     }
 
-    // Verificar email único si se está actualizando
     if (validatedData.email && validatedData.email !== existing.email) {
-      const emailExists = await prisma.supplier.findUnique({
-        where: { email: validatedData.email },
-      });
+      const emailExists = await prisma.supplier.findFirst({
+        where: { businessId: tenant, email: validatedData.email },
+      })
 
       if (emailExists) {
-        return NextResponse.json(
-          { error: "Ya existe un proveedor con ese email" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Ya existe un proveedor con ese email" }, { status: 400 })
       }
     }
 
     const updated = await prisma.supplier.update({
       where: { id },
       data: validatedData,
-    });
+    })
 
-    logger.info("Proveedor actualizado", { supplierId: id, userId: session.user.id });
+    logger.info("Proveedor actualizado", { supplierId: id, userId: session!.user.id })
 
-    return NextResponse.json(updated);
-  } catch (error: any) {
-    logger.error("Error al actualizar proveedor:", error);
-
-    if (error.name === "ZodError") {
-      return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
-        { status: 400 }
-      );
+    return NextResponse.json(updated)
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json({ error: "Validation error", details: error.issues }, { status: 400 })
     }
 
-    return NextResponse.json(
-      { error: "Error al actualizar proveedor", details: error.message },
-      { status: 500 }
-    );
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // DELETE /api/suppliers/[id] - Eliminar/desactivar proveedor
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    const { id } = await params;
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+    const { id } = await params
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
-
-    // Verificar que existe
-    const supplier = await prisma.supplier.findUnique({
-      where: { id },
+    const supplier = await prisma.supplier.findFirst({
+      where: { businessId: tenant, id },
       include: {
         _count: {
           select: {
@@ -180,43 +148,35 @@ export async function DELETE(
           },
         },
       },
-    });
+    })
 
     if (!supplier) {
-      return NextResponse.json(
-        { error: "Proveedor no encontrado" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 })
     }
 
-    // Si tiene compras, solo desactivar (soft delete)
     if (supplier._count.purchases > 0) {
       const updated = await prisma.supplier.update({
         where: { id },
         data: { isActive: false },
-      });
+      })
 
-      logger.info("Proveedor desactivado", { supplierId: id, userId: session.user.id });
+      logger.info("Proveedor desactivado", { supplierId: id, userId: session!.user.id })
 
       return NextResponse.json({
         message: "Proveedor desactivado",
         supplier: updated,
-      });
+      })
     }
 
-    // Si no tiene compras, eliminar permanentemente
     await prisma.supplier.delete({
       where: { id },
-    });
+    })
 
-    logger.info("Proveedor eliminado", { supplierId: id, userId: session.user.id });
+    logger.info("Proveedor eliminado", { supplierId: id, userId: session!.user.id })
 
-    return NextResponse.json({ message: "Proveedor eliminado" });
-  } catch (error: any) {
-    logger.error("Error al eliminar proveedor:", error);
-    return NextResponse.json(
-      { error: "Error al eliminar proveedor", details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ message: "Proveedor eliminado" })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -1,218 +1,249 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { verifyProductOwnership } from "@/lib/security/multi-tenant";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth-middleware"
+import { requireTenant } from "@/lib/security/tenant"
+import { stockMovementSchema } from "@/lib/validation/stockMovement.schema"
 
 // POST /api/products/stock-movements - Registrar movimiento de stock
 export async function POST(req: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session || !session.user.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const businessId = session.user.businessId;
-    const { productId, variantId, type, quantity, reason, reference } = await req.json();
+    requireRole(session!.user, ["OWNER", "ADMIN", "MANAGER"])
 
-    // Validar tipo de movimiento
-    const validTypes = ["ENTRADA", "SALIDA", "AJUSTE", "TRANSFERENCIA"];
+    const parsed = stockMovementSchema.safeParse(await req.json())
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation error", details: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const { productId, variantId, type, quantity, reason, reference } = parsed.data
+
+    const validTypes = ["ENTRADA", "SALIDA", "AJUSTE", "TRANSFERENCIA"]
     if (!validTypes.includes(type)) {
-      return NextResponse.json({ error: "Tipo de movimiento inválido" }, { status: 400 });
+      return NextResponse.json({ error: "Tipo de movimiento inválido" }, { status: 400 })
     }
 
-    // Verificar que el producto pertenezca al negocio
-    await verifyProductOwnership(productId, businessId);
-
-    // Validar que el producto exista
     const product = await prisma.product.findFirst({
       where: {
         id: productId,
-        businessId
+        businessId: tenant,
       },
-    });
+    })
 
     if (!product) {
-      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 })
     }
 
-    // Si es variante, validar que exista
-    if (variantId) {
-      const variant = await prisma.productVariant.findFirst({
+    const movement = await prisma.$transaction(async (tx) => {
+      // Resolver almacén principal
+      let mainWarehouse = await tx.warehouse.findFirst({
         where: {
-          id: variantId,
-          productId,
-        },
-      });
-
-      if (!variant) {
-        return NextResponse.json({ error: "Variante no encontrada" }, { status: 404 });
-      }
-    }
-
-    // Crear movimiento de stock
-    const movement = await prisma.stockMovement.create({
-      data: {
-        productId,
-        type,
-        quantity,
-        reason: reason || null,
-        reference: reference || null,
-        userId: session.user.id,
-      },
-      include: {
-        product: {
-          select: {
-            name: true,
-            sku: true,
-          },
-        },
-        user: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    });
-
-    // Actualizar stock del producto o variante
-    if (variantId) {
-      const variant = await prisma.productVariant.findUnique({
-        where: { id: variantId },
-      });
-
-      if (variant) {
-        const newStock =
-          type === "ENTRADA"
-            ? variant.stock + quantity
-            : type === "SALIDA"
-            ? variant.stock - quantity
-            : quantity; // AJUSTE - nuevo valor absoluto
-
-        await prisma.productVariant.update({
-          where: { id: variantId },
-          data: { stock: Math.max(0, newStock) },
-        });
-      }
-    } else {
-      // Para productos simples, el stock vive en ProductStock del almacen principal.
-      let mainWarehouse = await prisma.warehouse.findFirst({
-        where: {
-          branch: {
-            businessId,
-          },
+          branch: { businessId: tenant },
           isMain: true,
           isActive: true,
         },
-      });
+      })
 
       if (!mainWarehouse) {
-        mainWarehouse = await prisma.warehouse.findFirst({
+        mainWarehouse = await tx.warehouse.findFirst({
           where: {
-            branch: {
-              businessId,
-            },
+            branch: { businessId: tenant },
             isActive: true,
           },
-        });
+        })
       }
 
       if (!mainWarehouse) {
-        return NextResponse.json(
-          { error: "No hay un almacén activo configurado" },
-          { status: 400 }
-        );
+        throw new Error("No hay un almacén activo configurado")
       }
 
-      const currentStockRecord = await prisma.productStock.findUnique({
-        where: {
-          productId_warehouseId: {
+      if (variantId) {
+        const variant = await tx.productVariant.findFirst({
+          where: {
+            id: variantId,
+            productId,
+            product: { businessId: tenant },
+          },
+        })
+
+        if (!variant) {
+          throw new Error("Variante no encontrada")
+        }
+
+        await tx.variantStock.upsert({
+          where: {
+            variantId_warehouseId: {
+              variantId,
+              warehouseId: mainWarehouse.id,
+            },
+          },
+          update: {},
+          create: {
+            variantId,
+            warehouseId: mainWarehouse.id,
+            businessId: tenant,
+            stock: 0,
+            available: 0,
+          },
+        })
+
+        const updated = await tx.variantStock.updateMany({
+          where: {
+            variantId,
+            warehouseId: mainWarehouse.id,
+            businessId: tenant,
+            ...(type === "SALIDA" ? { stock: { gte: quantity } } : {}),
+          },
+          data: {
+            stock:
+              type === "AJUSTE"
+                ? quantity
+                : type === "ENTRADA"
+                  ? { increment: quantity }
+                  : { decrement: quantity },
+            available:
+              type === "AJUSTE"
+                ? quantity
+                : type === "ENTRADA"
+                  ? { increment: quantity }
+                  : { decrement: quantity },
+          },
+        })
+
+        if (updated.count === 0) {
+          throw new Error("Stock insuficiente para variante")
+        }
+
+        await tx.stockMovement.create({
+          data: {
+            businessId: tenant,
+            productId,
+            variantId,
+            warehouseId: mainWarehouse.id,
+            type,
+            quantity,
+            reason: reason || null,
+            reference: reference || null,
+            userId: session!.user.id,
+          },
+        })
+      } else {
+        let mainWarehouse = await tx.warehouse.findFirst({
+          where: {
+            branch: {
+              businessId: tenant,
+            },
+            isMain: true,
+            isActive: true,
+          },
+        })
+
+        if (!mainWarehouse) {
+          mainWarehouse = await tx.warehouse.findFirst({
+            where: {
+              branch: {
+                businessId: tenant,
+              },
+              isActive: true,
+            },
+          })
+        }
+
+        if (!mainWarehouse) {
+          throw new Error("No hay un almacén activo configurado")
+        }
+
+        const currentStockRecord = await tx.productStock.findUnique({
+          where: {
+            productId_warehouseId: {
+              productId,
+              warehouseId: mainWarehouse.id,
+            },
+          },
+        })
+
+        const currentStock = currentStockRecord?.stock || 0
+        const newStock =
+          type === "ENTRADA"
+            ? currentStock + quantity
+            : type === "SALIDA"
+              ? currentStock - quantity
+              : quantity
+
+        const finalStock = Math.max(0, newStock)
+
+        await tx.productStock.upsert({
+          where: {
+            productId_warehouseId: {
+              productId,
+              warehouseId: mainWarehouse.id,
+            },
+          },
+          create: {
             productId,
             warehouseId: mainWarehouse.id,
+            stock: finalStock,
+            available: finalStock,
           },
-        },
-      });
+          update: {
+            stock: finalStock,
+            available: Math.max(0, finalStock - (currentStockRecord?.reserved || 0)),
+          },
+        })
 
-      const currentStock = currentStockRecord?.stock || 0;
-      const newStock =
-        type === "ENTRADA"
-          ? currentStock + quantity
-          : type === "SALIDA"
-          ? currentStock - quantity
-          : quantity; // AJUSTE - nuevo valor absoluto
-
-      const finalStock = Math.max(0, newStock);
-
-      await prisma.productStock.upsert({
-        where: {
-          productId_warehouseId: {
+        await tx.stockMovement.create({
+          data: {
+            businessId: tenant,
             productId,
             warehouseId: mainWarehouse.id,
+            type,
+            quantity,
+            reason: reason || null,
+            reference: reference || null,
+            userId: session!.user.id,
           },
-        },
-        create: {
-          productId,
-          warehouseId: mainWarehouse.id,
-          stock: finalStock,
-          available: finalStock,
-        },
-        update: {
-          stock: finalStock,
-          available: Math.max(0, finalStock - (currentStockRecord?.reserved || 0)),
-        },
-      });
-    }
+        })
+      }
 
-    return NextResponse.json(movement, { status: 201 });
-  } catch (error: any) {
-    console.error("[POST /api/products/stock-movements]", error);
-    
-    if (error.status === 403) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
+      return { success: true }
+    })
+
+    return NextResponse.json(movement, { status: 201 })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    if (error instanceof Error && error.message.includes("almacén")) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
     }
-    
-    return NextResponse.json(
-      { error: "Error al registrar movimiento", details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // GET /api/products/stock-movements?productId=xxx - Historial de movimientos
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session || !session.user.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const businessId = session.user.businessId;
-    const { searchParams } = new URL(req.url);
-    const productId = searchParams.get("productId");
-    const variantId = searchParams.get("variantId");
-    const limit = parseInt(searchParams.get("limit") || "50");
-
-    // Validar que el producto pertenezca al negocio
-    if (productId) {
-      await verifyProductOwnership(productId, businessId);
-
-      const product = await prisma.product.findFirst({
-        where: {
-          id: productId,
-          businessId
-        },
-      });
-
-      if (!product) {
-        return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
-      }
-    }
+    const { searchParams } = new URL(req.url)
+    const productId = searchParams.get("productId")
+    const limit = parseInt(searchParams.get("limit") || "50")
 
     const movements = await prisma.stockMovement.findMany({
       where: {
+        businessId: tenant,
         ...(productId && { productId }),
-        ...(variantId && { /* variantId no existe en schema */ }),
       },
       include: {
         product: {
@@ -229,19 +260,11 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
       take: limit,
-    });
+    })
 
-    return NextResponse.json(movements);
-  } catch (error: any) {
-    console.error("[GET /api/products/stock-movements]", error);
-    
-    if (error.status === 403) {
-      return NextResponse.json({ error: error.message }, { status: 403 });
-    }
-    
-    return NextResponse.json(
-      { error: "Error al obtener movimientos", details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json(movements)
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

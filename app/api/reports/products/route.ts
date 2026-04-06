@@ -1,62 +1,63 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { requireTenant } from "@/lib/security/tenant"
 
 // GET /api/reports/products - Reporte de productos más vendidos
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const businessId = session.user.businessId;
-    const { searchParams } = new URL(req.url);
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
-    const limit = parseInt(searchParams.get("limit") || "20");
+    const { searchParams } = new URL(req.url)
+    const startDate = searchParams.get("startDate")
+    const endDate = searchParams.get("endDate")
+    const limit = parseInt(searchParams.get("limit") || "20")
 
     const stockRows = await prisma.productStock.findMany({
       where: {
         warehouse: {
           branch: {
-            businessId,
+            businessId: tenant,
           },
+        },
+        product: {
+          businessId: tenant,
         },
       },
       select: {
         productId: true,
         stock: true,
       },
-    });
+    })
 
-    const stockByProduct = new Map<string, number>();
+    const stockByProduct = new Map<string, number>()
     for (const row of stockRows) {
-      stockByProduct.set(
-        row.productId,
-        (stockByProduct.get(row.productId) || 0) + row.stock
-      );
+      stockByProduct.set(row.productId, (stockByProduct.get(row.productId) || 0) + row.stock)
     }
 
-    let dateFilter = {};
+    let dateFilter = {}
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
       dateFilter = {
         createdAt: {
           gte: start,
           lte: end,
         },
-      };
+      }
     }
 
-    // Productos más vendidos
     const topProducts = await prisma.saleItem.groupBy({
       by: ["productId"],
       where: {
         sale: {
+          businessId: tenant,
           ...dateFilter,
         },
       },
@@ -73,15 +74,13 @@ export async function GET(req: NextRequest) {
         },
       },
       take: limit,
-    });
+    })
 
-    // Enriquecer con datos del producto
     const productsWithDetails = await Promise.all(
       topProducts.map(async (item) => {
-        const product = await prisma.product.findUnique({
-          where: { id: item.productId },
+        const product = await prisma.product.findFirst({
+          where: { id: item.productId, businessId: tenant },
           select: {
-            businessId: true,
             name: true,
             sku: true,
             price: true,
@@ -92,14 +91,14 @@ export async function GET(req: NextRequest) {
               },
             },
           },
-        });
+        })
 
-        if (!product || product.businessId !== businessId) return null;
+        if (!product) return null
 
-        const revenue = parseFloat(item._sum.subtotal?.toString() || '0');
-        const quantity = item._sum.quantity || 0;
-        const costValue = parseFloat(product.cost.toString());
-        const profit = revenue - (costValue * quantity);
+        const revenue = parseFloat(item._sum.subtotal?.toString() || "0")
+        const quantity = item._sum.quantity || 0
+        const costValue = parseFloat(product.cost.toString())
+        const profit = revenue - costValue * quantity
 
         return {
           productId: item.productId,
@@ -114,16 +113,15 @@ export async function GET(req: NextRequest) {
           profit,
           profitMargin: revenue > 0 ? (profit / revenue) * 100 : 0,
           salesCount: item._count.id,
-        };
-      })
-    );
+        }
+      }),
+    )
 
-    const validProducts = productsWithDetails.filter((p) => p !== null);
+    const validProducts = productsWithDetails.filter((p) => p !== null)
 
-    // Productos con bajo stock - filtrar después ya que Prisma no soporta comparar columnas
     const allActiveProducts = await prisma.product.findMany({
       where: {
-        businessId,
+        businessId: tenant,
         isActive: true,
       },
       select: {
@@ -137,21 +135,20 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-    });
-    
+    })
+
     const lowStockProducts = allActiveProducts
       .map((p) => ({
         ...p,
         stock: stockByProduct.get(p.id) || 0,
       }))
-      .filter(p => p.stock <= p.minStock)
+      .filter((p) => p.stock <= p.minStock)
       .sort((a, b) => a.stock - b.stock)
-      .slice(0, 20);
+      .slice(0, 20)
 
-    // Productos sin ventas
     const productsWithoutSales = await prisma.product.findMany({
       where: {
-        businessId,
+        businessId: tenant,
         isActive: true,
         saleItems: {
           none: {},
@@ -173,23 +170,22 @@ export async function GET(req: NextRequest) {
         createdAt: "desc",
       },
       take: 20,
-    });
+    })
 
-    // Estadísticas generales
     const totalProducts = await prisma.product.count({
       where: {
-        businessId,
+        businessId: tenant,
         isActive: true,
       },
-    });
+    })
 
-    const totalRevenue = validProducts.reduce((sum, p) => sum + (p?.revenue || 0), 0);
-    const totalProfit = validProducts.reduce((sum, p) => sum + (p?.profit || 0), 0);
+    const totalRevenue = validProducts.reduce((sum, p) => sum + (p?.revenue || 0), 0)
+    const totalProfit = validProducts.reduce((sum, p) => sum + (p?.profit || 0), 0)
 
     const productsWithoutSalesWithStock = productsWithoutSales.map((product) => ({
       ...product,
       stock: stockByProduct.get(product.id) || 0,
-    }));
+    }))
 
     return NextResponse.json({
       period: startDate && endDate ? { start: startDate, end: endDate } : null,
@@ -204,12 +200,9 @@ export async function GET(req: NextRequest) {
       topProducts: validProducts,
       lowStockProducts,
       productsWithoutSales: productsWithoutSalesWithStock,
-    });
-  } catch (error: any) {
-    console.error("[GET /api/reports/products]", error);
-    return NextResponse.json(
-      { error: "Error al generar reporte", details: error.message },
-      { status: 500 }
-    );
+    })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

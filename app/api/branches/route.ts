@@ -1,27 +1,28 @@
 /**
  * API para gestionar sucursales
- * GET /api/branches - Obtiene todas las sucursales
- * POST /api/branches - Crea una sucursal
+ * GET /api/branches
+ * POST /api/branches
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { requireTenant } from "@/lib/security/tenant"
+import { branchSchema } from "@/lib/validation/branch.schema"
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
-    const activeOnly = searchParams.get('activeOnly') === 'true'
+    const activeOnly = searchParams.get("activeOnly") === "true"
 
     const branches = await prisma.branch.findMany({
       where: {
-        businessId: session.user.businessId!,
+        businessId: tenant,
         ...(activeOnly && { isActive: true }),
       },
       include: {
@@ -35,79 +36,68 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      orderBy: [{ isMain: 'desc' }, { name: 'asc' }],
+      orderBy: [{ isMain: "desc" }, { name: "asc" }],
     })
 
     return NextResponse.json(branches)
-  } catch (error: any) {
-    console.error('Error al obtener sucursales:', error)
-    return NextResponse.json(
-      { error: error.message || 'Error al obtener sucursales' },
-      { status: 500 }
-    )
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    if (session!.user.role !== "ADMIN" && session!.user.role !== "OWNER") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
-    // Verificar permisos
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'OWNER') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
+    const parsed = branchSchema.safeParse(await request.json())
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation error", details: parsed.error.issues }, { status: 400 })
     }
+    const { name, code, address, phone, isMain } = parsed.data
 
-    const { name, code, address, phone, isMain } = await request.json()
+    const result = await prisma.$transaction(async (tx) => {
+      if (isMain) {
+        await tx.branch.updateMany({
+          where: {
+            businessId: tenant,
+            isMain: true,
+          },
+          data: { isMain: false },
+        })
+      }
 
-    if (!name || !code) {
-      return NextResponse.json(
-        { error: 'Nombre y código son requeridos' },
-        { status: 400 }
-      )
-    }
-
-    // Si es la sucursal principal, desmarcar las demás
-    if (isMain) {
-      await prisma.branch.updateMany({
-        where: {
-          businessId: session.user.businessId!,
-          isMain: true,
-        },
+      const branch = await tx.branch.create({
         data: {
-          isMain: false,
+          businessId: tenant,
+          name,
+          code,
+          address,
+          phone,
+          isMain: isMain || false,
+          isActive: parsed.data.isActive ?? true,
         },
       })
-    }
 
-    const branch = await prisma.branch.create({
-      data: {
-        businessId: session.user.businessId!,
-        name,
-        code,
-        address,
-        phone,
-        isMain: isMain || false,
-      },
+      return branch
     })
 
-    return NextResponse.json(branch)
-  } catch (error: any) {
-    console.error('Error al crear sucursal:', error)
+    return NextResponse.json(result, { status: 201 })
+  } catch (error) {
+    const errorCode = typeof error === "object" && error !== null && "code" in error ? (error as { code?: string }).code : undefined
 
-    if (error.code === 'P2002') {
-      return NextResponse.json(
-        { error: 'Ya existe una sucursal con este código' },
-        { status: 400 }
-      )
+    if (errorCode === "P2002") {
+      return NextResponse.json({ error: "Ya existe una sucursal con este código" }, { status: 400 })
     }
 
-    return NextResponse.json(
-      { error: error.message || 'Error al crear sucursal' },
-      { status: 500 }
-    )
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

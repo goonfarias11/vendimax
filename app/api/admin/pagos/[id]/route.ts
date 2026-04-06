@@ -1,6 +1,6 @@
 // app/api/admin/pagos/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { requireSuperAdminApiSession } from '@/lib/admin/api-auth'
 import { prisma } from '@/lib/prisma'
 import { sendAnnualPaymentApprovedEmail } from '@/lib/email'
 import { z } from 'zod'
@@ -15,13 +15,9 @@ export async function PUT(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth()
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      )
+    const authResult = await requireSuperAdminApiSession()
+    if (!authResult.authorized) {
+      return authResult.response
     }
 
     const { id } = await context.params

@@ -161,7 +161,9 @@ export type CashClosingRange = z.infer<typeof cashClosingRangeSchema>
 export function validateRequest<T>(
   schema: z.ZodSchema<T>,
   data: unknown
-): { success: true; data: T } | { success: false; error: string; details?: any } {
+):
+  | { success: true; data: T }
+  | { success: false; error: string; details?: Array<{ field: string; message: string }> } {
   const result = schema.safeParse(data)
   
   if (result.success) {
@@ -172,7 +174,7 @@ export function validateRequest<T>(
   return {
     success: false,
     error: firstError.message,
-    details: result.error.issues.map((e: any) => ({
+    details: result.error.issues.map((e) => ({
       field: e.path.join('.'),
       message: e.message
     }))

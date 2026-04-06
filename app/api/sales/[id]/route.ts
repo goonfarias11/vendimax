@@ -2,40 +2,37 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 import { auth } from "@/lib/auth"
-import { requirePermission } from "@/lib/auth-middleware"
+import { requirePermission, requireRole } from "@/lib/auth-middleware"
 import { z } from "zod"
+import { requireTenant } from "@/lib/security/tenant"
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs"
 
 const cancelSaleSchema = z.object({
-  reason: z.string().min(10, "El motivo debe tener al menos 10 caracteres")
+  reason: z.string().min(10, "El motivo debe tener al menos 10 caracteres"),
 })
 
 // GET: Obtener detalle de venta
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   try {
-    const permissionCheck = await requirePermission(request, 'pos:access')
+    const permissionCheck = await requirePermission(request, "pos:access")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    const where: any = {
+    const where: Prisma.SaleWhereInput = {
       id,
-      businessId: session.user.businessId
+      businessId: tenant,
     }
 
-    // Si es VENDEDOR, solo puede ver sus propias ventas
-    if (session.user.role === 'VENDEDOR') {
-      where.userId = session.user.id
+    if (session!.user.role === "VENDEDOR") {
+      where.userId = session!.user.id
     }
 
     const sale = await prisma.sale.findFirst({
@@ -49,192 +46,189 @@ export async function GET(
                 name: true,
                 sku: true,
                 price: true,
-                cost: true
-              }
-            }
-          }
+                cost: true,
+                businessId: true,
+              },
+            },
+          },
         },
         salePayments: {
           select: {
             id: true,
             paymentMethod: true,
             amount: true,
-            reference: true
-          }
+            reference: true,
+          },
         },
         client: {
           select: {
             id: true,
             name: true,
             email: true,
-            phone: true
-          }
+            phone: true,
+            businessId: true,
+          },
         },
         user: {
           select: {
             id: true,
             name: true,
-            email: true
-          }
+            email: true,
+          },
         },
-        // cashMovement: true // TODO: Agregar relación en schema si es necesaria
-      }
+      },
     })
 
     if (!sale) {
       return NextResponse.json({ error: "Venta no encontrada" }, { status: 404 })
     }
 
-    // Si es VENDEDOR, no mostrar costos ni márgenes
-    if (session.user.role === 'VENDEDOR') {
-      // No modificar sale.saleItems directamente para evitar conflicto de tipos
+    if (sale.businessId !== tenant) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    if (session!.user.role === "VENDEDOR") {
       const sanitizedSale = {
         ...sale,
-        saleItems: sale.saleItems.map(item => ({
+        saleItems: sale.saleItems.map((item) => ({
           ...item,
           product: {
             ...item.product,
-            cost: new Prisma.Decimal(0) // Ocultar costo
-          }
-        }))
+            cost: new Prisma.Decimal(0),
+          },
+        })),
       }
       return NextResponse.json(sanitizedSale)
     }
 
     return NextResponse.json(sale)
   } catch (error) {
-    console.error("Error fetching sale:", error)
-    return NextResponse.json({ error: "Error al cargar venta" }, { status: 500 })
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // PUT: Anular venta
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   try {
-    const permissionCheck = await requirePermission(request, 'pos:cancel_sale')
+    const permissionCheck = await requirePermission(request, "pos:cancel_sale")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
     const session = await auth()
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+
+    requireRole(session!.user, ["OWNER", "ADMIN", "MANAGER"])
 
     const body = await request.json()
-    const { reason } = cancelSaleSchema.parse(body)
+    const parsed = cancelSaleSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation error", details: parsed.error.issues }, { status: 400 })
+    }
+    const { reason } = parsed.data
 
-    // Verificar que la venta existe
     const sale = await prisma.sale.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
+        businessId: tenant,
       },
       include: {
         saleItems: {
           include: {
-            product: true
-          }
+            product: true,
+          },
         },
-        client: true
-      }
+        client: true,
+      },
     })
 
     if (!sale) {
       return NextResponse.json({ error: "Venta no encontrada" }, { status: 404 })
     }
 
-    if (sale.status === 'CANCELADO') {
+    if (sale.status === "CANCELADO") {
       return NextResponse.json({ error: "La venta ya está cancelada" }, { status: 400 })
     }
 
-    // Anular en transacción
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Marcar venta como anulada
       const canceledSale = await tx.sale.update({
         where: { id },
         data: {
-          status: 'CANCELADO',
-          updatedAt: new Date()
-        }
+          status: "CANCELADO",
+          updatedAt: new Date(),
+        },
       })
 
-      // 2. Revertir stock usando ProductStock
-      // Buscar sucursal principal
       let mainBranch = await tx.branch.findFirst({
         where: {
-          businessId: session.user.businessId!,
+          businessId: tenant,
           isMain: true,
-          isActive: true
-        }
+          isActive: true,
+        },
       })
 
       if (!mainBranch) {
         mainBranch = await tx.branch.findFirst({
           where: {
-            businessId: session.user.businessId!,
-            isActive: true
-          }
+            businessId: tenant,
+            isActive: true,
+          },
         })
       }
 
-      // Buscar almacén principal
-      let mainWarehouse = mainBranch ? await tx.warehouse.findFirst({
-        where: {
-          branchId: mainBranch.id,
-          isMain: true,
-          isActive: true
-        }
-      }) : null
+      let mainWarehouse =
+        mainBranch &&
+        (await tx.warehouse.findFirst({
+          where: {
+            branchId: mainBranch.id,
+            isMain: true,
+            isActive: true,
+          },
+        }))
 
-      // Si no existe, buscar el primer almacén activo
       if (!mainWarehouse && mainBranch) {
         mainWarehouse = await tx.warehouse.findFirst({
           where: {
             branchId: mainBranch.id,
-            isActive: true
-          }
+            isActive: true,
+          },
         })
       }
 
       for (const item of sale.saleItems) {
-        // Verificar si el producto aún existe
         const productExists = await tx.product.findUnique({
           where: { id: item.productId },
-          select: { id: true, hasVariants: true }
+          select: { id: true, hasVariants: true },
         })
 
         if (!productExists) {
-          console.log(`Producto ${item.productId} ya no existe, no se revierte stock`)
           continue
         }
 
         if (productExists.hasVariants) {
-          // Para variantes, registrar movimiento manual
-          // TODO: Necesitaríamos guardar variantId en SaleItem para revertir correctamente
           await tx.stockMovement.create({
             data: {
               id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              businessId: tenant,
               productId: item.productId,
-              type: 'ENTRADA',
+              type: "ENTRADA",
               quantity: item.quantity,
               reason: `Devolución por anulación de venta #${sale.ticketNumber} (revisar variante manualmente)`,
-              userId: session.user.id
-            }
+              userId: session!.user.id,
+            },
           })
         } else if (mainWarehouse) {
-          // Revertir stock de producto simple
           const productStock = await tx.productStock.findUnique({
             where: {
               productId_warehouseId: {
                 productId: item.productId,
-                warehouseId: mainWarehouse.id
-              }
-            }
+                warehouseId: mainWarehouse.id,
+              },
+            },
           })
 
           if (productStock) {
@@ -242,103 +236,77 @@ export async function PUT(
               where: {
                 productId_warehouseId: {
                   productId: item.productId,
-                  warehouseId: mainWarehouse.id
-                }
+                  warehouseId: mainWarehouse.id,
+                },
               },
               data: {
                 stock: { increment: item.quantity },
-                available: { increment: item.quantity }
-              }
+                available: { increment: item.quantity },
+              },
             })
           }
 
-          // Registrar movimiento de stock
           await tx.stockMovement.create({
             data: {
               id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              businessId: tenant,
               productId: item.productId,
-              type: 'ENTRADA',
+              type: "ENTRADA",
               quantity: item.quantity,
               reason: `Devolución por anulación de venta #${sale.ticketNumber}`,
-              userId: session.user.id
-            }
+              userId: session!.user.id,
+            },
           })
         }
       }
 
-      // 3. Si había cliente con crédito, revertir deuda
-      if (sale.clientId && sale.paymentMethod === 'CUENTA_CORRIENTE') {
+      if (sale.clientId && sale.paymentMethod === "CUENTA_CORRIENTE") {
         await tx.client.update({
           where: { id: sale.clientId },
           data: {
-            currentDebt: { decrement: sale.total }
-          }
+            currentDebt: { decrement: sale.total },
+          },
         })
       }
 
-      // 4. Anular movimiento de caja
-      if (sale.paymentMethod !== 'CUENTA_CORRIENTE') {
+      if (sale.paymentMethod !== "CUENTA_CORRIENTE") {
         await tx.cashMovement.updateMany({
           where: {
-            type: 'VENTA',
-            reference: id // Campo reference, no referenceId
+            type: "VENTA",
+            reference: id,
+            businessId: tenant,
           },
           data: {
-            description: `ANULADO - ${reason}`
-          }
+            description: `ANULADO - ${reason}`,
+          },
         })
 
-        // Crear movimiento de corrección
         await tx.cashMovement.create({
           data: {
             id: `cash_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-            type: 'SALIDA',
+            type: "SALIDA",
             amount: sale.total,
             description: `Anulación de venta #${sale.ticketNumber} (${sale.paymentMethod}) - ${reason}`,
-            reference: id, // Campo reference, no referenceId
-            userId: session.user.id,
-            businessId: session.user.businessId!
-          }
+            reference: id,
+            userId: session!.user.id,
+            businessId: tenant,
+          },
         })
       }
-
-      // 5. Log de auditoría
-      // TODO: Implementar modelo AuditLog en schema
-      // // TODO: Implementar modelo AuditLog en schema
-      // await tx.auditLog.create({
-      //   data: {
-      //     id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-      //     userId: session.user.id,
-      //     businessId: session.user.businessId,
-      //     action: 'SALE_CANCELED',
-      //     entity: 'Sale',
-      //     entityId: id,
-      //     details: `Venta #${sale.ticketNumber} anulada - ${reason}`,
-      //     metadata: {
-      //       saleId: id,
-      //       ticketNumber: sale.ticketNumber,
-      //       total: sale.total.toString(),
-      //       reason,
-      //       items: sale.saleItems.length
-      //     }
-      //   }
-      // })
 
       return canceledSale
     })
 
     return NextResponse.json({
       message: "Venta anulada correctamente",
-      sale: result
+      sale: result,
     })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Datos inválidos", details: error.issues },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Datos inválidos", details: error.issues }, { status: 400 })
     }
-    console.error("Error canceling sale:", error)
-    return NextResponse.json({ error: "Error al anular venta" }, { status: 500 })
+
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { formatPrice } from '@/lib/mercadopago'
 
@@ -45,15 +45,7 @@ export default function AdminPreciosPage() {
   const [reason, setReason] = useState<string>('')
   const [ipcValue, setIpcValue] = useState<number | null>(null)
 
-  useEffect(() => {
-    if (session?.user?.role !== 'ADMIN') {
-      window.location.href = '/dashboard'
-      return
-    }
-    loadData()
-  }, [session])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/precios')
       const data = await res.json()
@@ -64,7 +56,22 @@ export default function AdminPreciosPage() {
       console.error('Error al cargar datos:', error)
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!session?.user) return
+
+    if (session.user.role !== 'ADMIN') {
+      window.location.href = '/dashboard'
+      return
+    }
+
+    const timer = setTimeout(() => {
+      void loadData()
+    }, 0)
+
+    return () => clearTimeout(timer)
+  }, [session, loadData])
 
   const handleEdit = (id: string, type: 'plan' | 'addon') => {
     setEditingId(id)

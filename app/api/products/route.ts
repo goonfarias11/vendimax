@@ -2,26 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { z } from "zod"
-import { requireBusinessId, verifyProductOwnership } from "@/lib/security/multi-tenant"
-import { requirePermission } from "@/lib/auth-middleware"
+import { verifyProductOwnership } from "@/lib/security/multi-tenant"
+import { requirePermission, requireRole } from "@/lib/auth-middleware"
+import { auditService, AUDIT_ENTITIES } from "@/lib/audit"
+import { Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { productSchema } from "@/lib/validation/product.schema"
 
 export const runtime = 'nodejs'
-
-const productSchema = z.object({
-  name: z.string().min(2, "El nombre debe tener al menos 2 caracteres"),
-  sku: z.string().min(3, "El SKU debe tener al menos 3 caracteres"),
-  barcode: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  price: z.number().positive("El precio debe ser mayor a 0"),
-  cost: z.number().positive("El costo debe ser mayor a 0"),
-  stock: z.number().int().min(0, "El stock no puede ser negativo").optional(), // Para actualizar en warehouse principal
-  minStock: z.number().int().min(0, "El stock mínimo no puede ser negativo"),
-  maxStock: z.number().int().positive().optional().nullable(),
-  categoryId: z.string().optional().nullable(),
-  image: z.string().optional().nullable(),
-  unit: z.string().optional().nullable(),
-  taxRate: z.number().min(0).max(100).default(21),
-})
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,24 +20,15 @@ export async function GET(request: NextRequest) {
     }
 
     const session = await auth()
-    if (!session?.user) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
-
-    if (!session.user.businessId) {
-      return NextResponse.json({ 
-        error: "Usuario sin negocio asignado. Por favor, contacta al administrador.",
-        details: "businessId is missing from session"
-      }, { status: 403 })
-    }
-
-    const businessId = session.user.businessId
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const businessId = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
     const search = searchParams.get('search')
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : undefined
 
-    const where: any = {
+    const where: Prisma.ProductWhereInput = {
       businessId,
       isActive: true
     }
@@ -95,9 +74,9 @@ export async function GET(request: NextRequest) {
       take: limit
     })
 
-    const formatted = products.map(p => {
+    const formatted = products.map((p) => {
       // Calcular stock total desde ProductStock (suma de todos los warehouses)
-      const totalStock = (p as any).productStocks?.reduce((sum: number, ps: any) => sum + ps.stock, 0) || 0;
+      const totalStock = p.productStocks.reduce((sum, ps) => sum + ps.stock, 0)
       
       return {
         id: p.id,
@@ -117,8 +96,8 @@ export async function GET(request: NextRequest) {
         unit: p.unit,
         taxRate: Number(p.taxRate),
         isActive: p.isActive,
-        hasVariants: (p as any).variants?.length > 0,
-        variants: (p as any).variants?.map((v: any) => ({
+        hasVariants: p.variants.length > 0,
+        variants: p.variants.map((v) => ({
           id: v.id,
           name: v.name,
           sku: v.sku,
@@ -148,15 +127,20 @@ export async function POST(request: NextRequest) {
     }
 
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+
+    const currentSession = session ?? (await auth())
+    if (!currentSession?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const businessId = session.user.businessId
+    requireRole(currentSession.user, ['OWNER', 'ADMIN', 'MANAGER'])
+    const businessId = tenantResult.tenant
 
     const body = await request.json()
-    const { stock: initialStock, ...productData } = body
     const validatedData = productSchema.parse(body)
+    const { stock: initialStock, ...productData } = validatedData
 
     // Verificar si el SKU ya existe en este negocio
     const existingSku = await prisma.product.findFirst({
@@ -199,6 +183,22 @@ export async function POST(request: NextRequest) {
         category: true
       }
     })
+
+    // Auditoría: creación de producto
+    await auditService.logCreate(
+      businessId,
+      currentSession.user.id,
+      AUDIT_ENTITIES.PRODUCT,
+      product.id,
+      {
+        name: product.name,
+        sku: product.sku,
+        price: product.price,
+        cost: product.cost,
+        minStock: product.minStock,
+        categoryId: product.categoryId
+      }
+    )
 
     // Si se proporciona stock inicial, crear registro en ProductStock para el warehouse principal
     if (typeof initialStock === 'number') {
@@ -286,6 +286,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error creating product:", error)
 
+    if ((error as Error & { status?: number }).status === 403) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Datos inválidos", details: error.issues },
@@ -300,11 +304,16 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+
+    const currentSession = session ?? (await auth())
+    if (!currentSession?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const businessId = session.user.businessId
+    requireRole(currentSession.user, ['OWNER', 'ADMIN', 'MANAGER'])
+    const businessId = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
@@ -320,8 +329,8 @@ export async function PUT(request: NextRequest) {
     await verifyProductOwnership(id, businessId)
 
     const body = await request.json()
-    const { stock: newStock, ...productData } = body
     const validatedData = productSchema.parse(body)
+    const { stock: newStock, ...productData } = validatedData
 
     // Verificar si el SKU ya está en uso por otro producto del mismo negocio
     const existingSku = await prisma.product.findFirst({
@@ -338,6 +347,21 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const previous = await prisma.product.findUnique({
+      where: { id },
+      select: {
+        name: true,
+        sku: true,
+        price: true,
+        cost: true,
+        minStock: true,
+        maxStock: true,
+        taxRate: true,
+        isActive: true,
+        categoryId: true
+      }
+    })
 
     const product = await prisma.product.update({
       where: { id },
@@ -429,9 +453,35 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Auditoría: actualización de producto
+    if (previous) {
+      await auditService.logUpdate(
+        businessId,
+        currentSession.user.id,
+        AUDIT_ENTITIES.PRODUCT,
+        product.id,
+        previous,
+        {
+          name: product.name,
+          sku: product.sku,
+          price: product.price,
+          cost: product.cost,
+          minStock: product.minStock,
+          maxStock: product.maxStock,
+          taxRate: product.taxRate,
+          isActive: product.isActive,
+          categoryId: product.categoryId
+        }
+      )
+    }
+
     return NextResponse.json(product)
   } catch (error) {
     console.error("Error updating product:", error)
+
+    if ((error as Error & { status?: number }).status === 403) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
@@ -447,11 +497,16 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+
+    const currentSession = session ?? (await auth())
+    if (!currentSession?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    const businessId = session.user.businessId
+    requireRole(currentSession.user, ['OWNER', 'ADMIN', 'MANAGER'])
+    const businessId = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
@@ -466,16 +521,44 @@ export async function DELETE(request: NextRequest) {
     // Verificar que el producto pertenezca al negocio
     await verifyProductOwnership(id, businessId)
 
+    const product = await prisma.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        price: true,
+        cost: true,
+        minStock: true,
+        categoryId: true,
+        isActive: true
+      }
+    })
+
     // Soft delete
     await prisma.product.update({
       where: { id },
       data: { isActive: false }
     })
 
+    if (product) {
+      await auditService.logDelete(
+        businessId,
+        currentSession.user.id,
+        AUDIT_ENTITIES.PRODUCT,
+        product.id,
+        product
+      )
+    }
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error deleting product:", error)
+
+    if ((error as Error & { status?: number }).status === 403) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     return NextResponse.json({ error: "Error al eliminar producto" }, { status: 500 })
   }
 }
-

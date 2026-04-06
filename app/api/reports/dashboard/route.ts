@@ -1,38 +1,40 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { verifyProductOwnership } from "@/lib/security/multi-tenant";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { requireTenant } from "@/lib/security/tenant"
 
 // GET /api/reports/dashboard - Dashboard con métricas principales
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const businessId = session.user.businessId;
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart);
-    yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastMonthStart = new Date(monthStart);
-    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1);
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterdayStart = new Date(todayStart)
+    yesterdayStart.setDate(yesterdayStart.getDate() - 1)
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const lastMonthStart = new Date(monthStart)
+    lastMonthStart.setMonth(lastMonthStart.getMonth() - 1)
 
     // Ventas de hoy
     const todaySales = await prisma.sale.aggregate({
       where: {
+        businessId: tenant,
         createdAt: { gte: todayStart },
       },
       _sum: { total: true },
       _count: { id: true },
-    });
+    })
 
     // Ventas de ayer
     const yesterdaySales = await prisma.sale.aggregate({
       where: {
+        businessId: tenant,
         createdAt: {
           gte: yesterdayStart,
           lt: todayStart,
@@ -40,21 +42,22 @@ export async function GET(req: NextRequest) {
       },
       _sum: { total: true },
       _count: { id: true },
-    });
+    })
 
     // Ventas del mes
     const monthSales = await prisma.sale.aggregate({
       where: {
+        businessId: tenant,
         createdAt: { gte: monthStart },
       },
       _sum: { total: true },
       _count: { id: true },
-    });
+    })
 
     // Ventas del mes pasado
     const lastMonthSales = await prisma.sale.aggregate({
       where: {
-
+        businessId: tenant,
         createdAt: {
           gte: lastMonthStart,
           lt: monthStart,
@@ -62,18 +65,18 @@ export async function GET(req: NextRequest) {
       },
       _sum: { total: true },
       _count: { id: true },
-    });
+    })
 
     // Productos con bajo stock - sumar stock en todos los almacenes.
     const stockRows = await prisma.productStock.findMany({
       where: {
         warehouse: {
           branch: {
-            businessId,
+            businessId: tenant,
           },
         },
         product: {
-          businessId,
+          businessId: tenant,
           isActive: true,
         },
       },
@@ -86,37 +89,39 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-    });
+    })
 
-    const stockByProduct = new Map<string, { minStock: number; stock: number }>();
+    const stockByProduct = new Map<string, { minStock: number; stock: number }>()
     for (const row of stockRows) {
-      const current = stockByProduct.get(row.productId);
+      const current = stockByProduct.get(row.productId)
       if (current) {
-        current.stock += row.stock;
+        current.stock += row.stock
       } else {
         stockByProduct.set(row.productId, {
           minStock: row.product.minStock,
           stock: row.stock,
-        });
+        })
       }
     }
 
     const lowStockCount = Array.from(stockByProduct.values()).filter(
-      (p) => p.minStock > 0 && p.stock <= p.minStock
-    ).length;
+      (p) => p.minStock > 0 && p.stock <= p.minStock,
+    ).length
 
     // Clientes con deuda
     const clientsWithDebt = await prisma.client.count({
       where: {
+        businessId: tenant,
         currentDebt: {
           gt: 0,
         },
       },
-    });
+    })
 
     // Total deuda pendiente
     const totalDebt = await prisma.client.aggregate({
       where: {
+        businessId: tenant,
         currentDebt: {
           gt: 0,
         },
@@ -124,13 +129,14 @@ export async function GET(req: NextRequest) {
       _sum: {
         currentDebt: true,
       },
-    });
+    })
 
     // Top 5 productos del día
     const topProductsToday = await prisma.saleItem.groupBy({
       by: ["productId"],
       where: {
         sale: {
+          businessId: tenant,
           createdAt: { gte: todayStart },
         },
       },
@@ -144,30 +150,29 @@ export async function GET(req: NextRequest) {
         },
       },
       take: 5,
-    });
+    })
 
     const topProductsWithNames = await Promise.all(
       topProductsToday.map(async (item) => {
-        const product = await prisma.product.findUnique({
-          where: { id: item.productId },
-          select: { name: true, sku: true, businessId: true },
-        });
-        // Filtrar productos que no pertenecen al negocio
-        if (product && product.businessId !== businessId) {
-          return null;
+        const product = await prisma.product.findFirst({
+          where: { id: item.productId, businessId: tenant },
+          select: { name: true, sku: true },
+        })
+        if (!product) {
+          return null
         }
         return {
-          name: product?.name || "Desconocido",
-          sku: product?.sku || "",
+          name: product.name || "Desconocido",
+          sku: product.sku || "",
           quantity: item._sum.quantity || 0,
           revenue: parseFloat((item._sum.subtotal || 0).toString()),
-        };
-      })
-    ).then(results => results.filter(r => r !== null));
+        }
+      }),
+    ).then((results) => results.filter((r) => r !== null))
 
     // Últimas 5 ventas
     const recentSales = await prisma.sale.findMany({
-      where: {},
+      where: { businessId: tenant },
       include: {
         client: {
           select: {
@@ -184,16 +189,18 @@ export async function GET(req: NextRequest) {
         createdAt: "desc",
       },
       take: 5,
-    });
+    })
 
     // Calcular comparaciones
-    const todayVsYesterday = yesterdaySales._count.id > 0
-      ? ((todaySales._count.id - yesterdaySales._count.id) / yesterdaySales._count.id) * 100
-      : 0;
+    const todayVsYesterday =
+      yesterdaySales._count.id > 0
+        ? ((todaySales._count.id - yesterdaySales._count.id) / yesterdaySales._count.id) * 100
+        : 0
 
-    const monthVsLastMonth = lastMonthSales._count.id > 0
-      ? ((monthSales._count.id - lastMonthSales._count.id) / lastMonthSales._count.id) * 100
-      : 0;
+    const monthVsLastMonth =
+      lastMonthSales._count.id > 0
+        ? ((monthSales._count.id - lastMonthSales._count.id) / lastMonthSales._count.id) * 100
+        : 0
 
     return NextResponse.json({
       today: {
@@ -221,12 +228,9 @@ export async function GET(req: NextRequest) {
         paymentMethod: sale.paymentMethod,
         createdAt: sale.createdAt,
       })),
-    });
-  } catch (error: any) {
-    console.error("[GET /api/reports/dashboard]", error);
-    return NextResponse.json(
-      { error: "Error al cargar dashboard", details: error.message },
-      { status: 500 }
-    );
+    })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

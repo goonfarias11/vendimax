@@ -239,7 +239,7 @@ export function isMercadoPagoConfigured(): boolean {
   )
 }
 
-export default {
+const mercadopagoClient = {
   createPreApproval,
   getPreApproval,
   cancelPreApproval,
@@ -252,3 +252,5 @@ export default {
   formatPrice,
   isMercadoPagoConfigured
 }
+
+export default mercadopagoClient

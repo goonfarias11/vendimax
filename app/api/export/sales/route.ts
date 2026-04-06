@@ -3,27 +3,27 @@
  * GET /api/export/sales - Exporta ventas en formato Excel
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { excelExportService } from '@/lib/export/excel'
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { excelExportService } from "@/lib/export/excel"
+import { Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
-    const startDate = searchParams.get('startDate')
-    const endDate = searchParams.get('endDate')
-    const format = searchParams.get('format') || 'excel'
+    const startDate = searchParams.get("startDate")
+    const endDate = searchParams.get("endDate")
 
-    // Construir filtros de fecha
-    const dateFilter: any = {}
+    const dateFilter: Prisma.DateTimeFilter = {}
     if (startDate) {
       dateFilter.gte = new Date(startDate)
     }
@@ -33,10 +33,9 @@ export async function GET(request: NextRequest) {
       dateFilter.lte = end
     }
 
-    // Obtener ventas
     const sales = await prisma.sale.findMany({
       where: {
-        businessId: session.user.businessId!,
+        businessId: tenant,
         ...(Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
       },
       include: {
@@ -56,36 +55,30 @@ export async function GET(request: NextRequest) {
         },
       },
       orderBy: {
-        createdAt: 'desc',
+        createdAt: "desc",
       },
     })
 
-    // Obtener información del negocio
     const business = await prisma.business.findUnique({
-      where: { id: session.user.businessId! },
+      where: { id: tenant },
     })
 
     if (!business) {
-      return NextResponse.json({ error: 'Negocio no encontrado' }, { status: 404 })
+      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
     }
 
-    // Generar Excel
     const buffer = await excelExportService.exportSales(sales, business)
 
-    // Nombre del archivo
-    const filename = `ventas_${startDate || 'todas'}_${endDate || 'hasta_hoy'}.xlsx`
+    const filename = `ventas_${startDate || "todas"}_${endDate || "hasta_hoy"}.xlsx`
 
     return new NextResponse(buffer as unknown as BodyInit, {
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
       },
     })
-  } catch (error: any) {
-    console.error('Error al exportar ventas:', error)
-    return NextResponse.json(
-      { error: error.message || 'Error al exportar ventas' },
-      { status: 500 }
-    )
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

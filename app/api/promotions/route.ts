@@ -39,10 +39,11 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(promotions)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener promociones'
     console.error('Error al obtener promociones:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener promociones' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -111,10 +112,11 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(promotion)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al crear promoción'
     console.error('Error al crear promoción:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al crear promoción' },
+      { error: message },
       { status: 500 }
     )
   }

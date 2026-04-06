@@ -61,10 +61,11 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json(refunds);
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error("Error al obtener devoluciones:", error);
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
     return NextResponse.json(
-      { error: "Error al obtener devoluciones", details: error.message },
+      { error: "Error al obtener devoluciones", details: errorMessage },
       { status: 500 }
     );
   }

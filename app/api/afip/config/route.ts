@@ -1,15 +1,15 @@
 /**
- * API para gestionar configuración de AFIP
- * GET /api/afip/config - Obtiene la configuración
- * POST /api/afip/config - Crea o actualiza la configuración
- * PUT /api/afip/config - Actualiza la configuración
+ * API legacy compartida para configuración ARCA
+ * GET /api/afip/config (legacy) o /api/arca/config - Obtiene la configuración
+ * POST /api/afip/config (legacy) o /api/arca/config - Crea o actualiza la configuración
+ * PUT /api/afip/config (legacy) o /api/arca/config - Actualiza la configuración
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -36,10 +36,11 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(null)
-  } catch (error: any) {
-    console.error('Error al obtener configuración AFIP:', error)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener configuración'
+    console.error('Error al obtener configuración ARCA:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener configuración' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -113,10 +114,11 @@ export async function POST(request: NextRequest) {
         key: config.key ? '***CONFIGURADO***' : null,
       },
     })
-  } catch (error: any) {
-    console.error('Error al crear/actualizar configuración AFIP:', error)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al guardar configuración'
+    console.error('Error al crear/actualizar configuración ARCA:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al guardar configuración' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -126,7 +128,7 @@ export async function PUT(request: NextRequest) {
   return POST(request)
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE() {
   try {
     const session = await auth()
 
@@ -144,10 +146,11 @@ export async function DELETE(request: NextRequest) {
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    console.error('Error al eliminar configuración AFIP:', error)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al eliminar configuración'
+    console.error('Error al eliminar configuración ARCA:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al eliminar configuración' },
+      { error: message },
       { status: 500 }
     )
   }

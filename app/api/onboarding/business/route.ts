@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
 
     const userId = session.user.id;
     const body = await req.json();
-    const { businessName, industry, address, taxId } = body;
+    const { businessName, address, taxId } = body;
 
     if (!businessName) {
       return NextResponse.json({ error: "El nombre del negocio es obligatorio" }, { status: 400 });

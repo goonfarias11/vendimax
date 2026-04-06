@@ -4,6 +4,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 
 export interface AuditLogData {
   businessId: string
@@ -11,7 +12,7 @@ export interface AuditLogData {
   action: string
   entity: string
   entityId?: string
-  changes?: any
+  changes?: Prisma.InputJsonValue
   ipAddress?: string
   userAgent?: string
 }
@@ -29,7 +30,7 @@ export class AuditService {
           action: data.action,
           entity: data.entity,
           entityId: data.entityId,
-          changes: data.changes || null,
+          changes: data.changes ?? Prisma.JsonNull,
           ipAddress: data.ipAddress,
           userAgent: data.userAgent,
         },
@@ -52,7 +53,7 @@ export class AuditService {
       limit?: number
     }
   ) {
-    const where: any = { businessId }
+    const where: Prisma.AuditLogWhereInput = { businessId }
 
     if (options?.entity) {
       where.entity = options.entity
@@ -63,13 +64,14 @@ export class AuditService {
     }
 
     if (options?.startDate || options?.endDate) {
-      where.createdAt = {}
+      const createdAt: Prisma.DateTimeFilter = {}
       if (options.startDate) {
-        where.createdAt.gte = options.startDate
+        createdAt.gte = options.startDate
       }
       if (options.endDate) {
-        where.createdAt.lte = options.endDate
+        createdAt.lte = options.endDate
       }
+      where.createdAt = createdAt
     }
 
     return await prisma.auditLog.findMany({
@@ -84,14 +86,20 @@ export class AuditService {
   /**
    * Helper para crear log de creación
    */
-  async logCreate(businessId: string, userId: string, entity: string, entityId: string, data: any) {
+  async logCreate(
+    businessId: string,
+    userId: string,
+    entity: string,
+    entityId: string,
+    data: Prisma.InputJsonValue
+  ) {
     await this.log({
       businessId,
       userId,
       action: 'CREATE',
       entity,
       entityId,
-      changes: { new: data },
+      changes: { new: data } as Prisma.InputJsonValue,
     })
   }
 
@@ -103,8 +111,8 @@ export class AuditService {
     userId: string,
     entity: string,
     entityId: string,
-    oldData: any,
-    newData: any
+    oldData: Prisma.InputJsonValue,
+    newData: Prisma.InputJsonValue
   ) {
     await this.log({
       businessId,
@@ -112,21 +120,27 @@ export class AuditService {
       action: 'UPDATE',
       entity,
       entityId,
-      changes: { old: oldData, new: newData },
+      changes: { old: oldData, new: newData } as Prisma.InputJsonValue,
     })
   }
 
   /**
    * Helper para crear log de eliminación
    */
-  async logDelete(businessId: string, userId: string, entity: string, entityId: string, data: any) {
+  async logDelete(
+    businessId: string,
+    userId: string,
+    entity: string,
+    entityId: string,
+    data: Prisma.InputJsonValue
+  ) {
     await this.log({
       businessId,
       userId,
       action: 'DELETE',
       entity,
       entityId,
-      changes: { deleted: data },
+      changes: { deleted: data } as Prisma.InputJsonValue,
     })
   }
 
@@ -139,7 +153,7 @@ export class AuditService {
     action: string,
     entity: string,
     entityId?: string,
-    metadata?: any
+    metadata?: Prisma.InputJsonValue
   ) {
     await this.log({
       businessId,
@@ -164,10 +178,12 @@ export const AUDIT_ENTITIES = {
   STOCK: 'stock',
   CASH_REGISTER: 'cash_register',
   CASH_CLOSING: 'cash_closing',
+  ARCA_INVOICE: 'afip_invoice',
   AFIP_INVOICE: 'afip_invoice',
   PROMOTION: 'promotion',
   WEBHOOK: 'webhook',
   API_KEY: 'api_key',
+  BUSINESS: 'business',
 } as const
 
 // Constantes de acciones auditables

@@ -57,9 +57,15 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      await prisma.product.deleteMany({});
-      await prisma.category.deleteMany({});
-      await prisma.client.deleteMany({});
+      await prisma.product.deleteMany({
+        where: { businessId: business.id },
+      });
+      await prisma.category.deleteMany({
+        where: { businessId: business.id },
+      });
+      await prisma.client.deleteMany({
+        where: { businessId: business.id },
+      });
       await prisma.user.deleteMany({
         where: { businessId: business.id },
       });
@@ -84,6 +90,7 @@ export async function POST(request: NextRequest) {
         email: 'demo@vendimax.com',
         passwordHash: await hash('demo123', 10),
         role: 'ADMIN',
+        adminRole: 'admin',
       },
     });
 
@@ -108,25 +115,25 @@ export async function POST(request: NextRequest) {
     });
 
     // Crear categorías
-    const categories = await prisma.category.createMany({
+    await prisma.category.createMany({
       data: [
-        { name: 'Electrónica', description: 'Productos electrónicos' },
-        { name: 'Ropa', description: 'Indumentaria' },
-        { name: 'Alimentos', description: 'Productos alimenticios' },
-        { name: 'Hogar', description: 'Artículos para el hogar' },
+        { businessId: demoBusiness.id, name: 'Electrónica', description: 'Productos electrónicos' },
+        { businessId: demoBusiness.id, name: 'Ropa', description: 'Indumentaria' },
+        { businessId: demoBusiness.id, name: 'Alimentos', description: 'Productos alimenticios' },
+        { businessId: demoBusiness.id, name: 'Hogar', description: 'Artículos para el hogar' },
       ],
     });
 
     const electronicaCategory = await prisma.category.findFirst({
-      where: { name: 'Electrónica' },
+      where: { businessId: demoBusiness.id, name: 'Electrónica' },
     });
 
     const ropaCategory = await prisma.category.findFirst({
-      where: { name: 'Ropa' },
+      where: { businessId: demoBusiness.id, name: 'Ropa' },
     });
 
     const alimentosCategory = await prisma.category.findFirst({
-      where: { name: 'Alimentos' },
+      where: { businessId: demoBusiness.id, name: 'Alimentos' },
     });
 
     // Crear productos
@@ -238,11 +245,11 @@ export async function POST(request: NextRequest) {
     // Crear algunas ventas de ejemplo
     const mouse = await prisma.product.findFirst({ where: { sku: 'MOUSE-001', businessId: demoBusiness.id } });
     const teclado = await prisma.product.findFirst({ where: { sku: 'TECLADO-001', businessId: demoBusiness.id } });
-    const cliente1 = await prisma.client.findFirst({ where: { name: 'Juan Pérez' } });
-    const cliente2 = await prisma.client.findFirst({ where: { name: 'María González' } });
+    const cliente1 = await prisma.client.findFirst({ where: { businessId: demoBusiness.id, name: 'Juan Pérez' } });
+    const cliente2 = await prisma.client.findFirst({ where: { businessId: demoBusiness.id, name: 'María González' } });
 
     if (mouse && cliente1) {
-      const sale1 = await prisma.sale.create({
+      await prisma.sale.create({
         data: {
           userId: demoUser.id,
           clientId: cliente1.id,
@@ -255,6 +262,7 @@ export async function POST(request: NextRequest) {
             create: [
               {
                 productId: mouse.id,
+                businessId: demoBusiness.id,
                 quantity: 1,
                 price: 15000,
                 subtotal: 15000,
@@ -266,7 +274,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (teclado && cliente2) {
-      const sale2 = await prisma.sale.create({
+      await prisma.sale.create({
         data: {
           userId: demoUser.id,
           clientId: cliente2.id,
@@ -279,6 +287,7 @@ export async function POST(request: NextRequest) {
             create: [
               {
                 productId: teclado.id,
+                businessId: demoBusiness.id,
                 quantity: 1,
                 price: 35000,
                 subtotal: 35000,

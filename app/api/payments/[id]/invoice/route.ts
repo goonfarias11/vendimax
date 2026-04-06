@@ -65,9 +65,10 @@ export async function GET(
 
     // Generar PDF
     const pdfBuffer = await generateInvoicePDF(id)
+    const pdfBytes = new Uint8Array(pdfBuffer)
 
     // Devolver PDF
-    return new NextResponse(pdfBuffer as any, {
+    return new NextResponse(pdfBytes, {
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `attachment; filename="factura-${payment.invoiceNumber || id}.pdf"`

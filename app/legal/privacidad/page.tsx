@@ -23,7 +23,7 @@ export default function PrivacidadPage() {
                 1. Introducción
               </h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                En VendiMax ("nosotros", "nuestro"), respetamos tu privacidad y nos comprometemos a proteger 
+                En VendiMax (&quot;nosotros&quot;, &quot;nuestro&quot;), respetamos tu privacidad y nos comprometemos a proteger 
                 tus datos personales. Esta Política de Privacidad explica cómo recopilamos, usamos, compartimos 
                 y protegemos tu información cuando utilizas nuestro servicio.
               </p>

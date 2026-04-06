@@ -9,7 +9,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -43,10 +43,11 @@ export async function GET(request: NextRequest) {
     }))
 
     return NextResponse.json(maskedKeys)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener API keys'
     console.error('Error al obtener API keys:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener API keys' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -88,10 +89,11 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(apiKey)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al crear API key'
     console.error('Error al crear API key:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al crear API key' },
+      { error: message },
       { status: 500 }
     )
   }

@@ -94,14 +94,14 @@ export function validateCuit(cuit: string): boolean {
 /**
  * Sanitiza objeto completo recursivamente
  */
-export function sanitizeObject<T extends Record<string, any>>(
+export function sanitizeObject<T extends Record<string, unknown>>(
   obj: T,
   options: {
     allowHtml?: boolean;
     allowEmail?: boolean;
   } = {}
 ): T {
-  const sanitized: any = {};
+  const sanitized: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
     if (value === null || value === undefined) {
@@ -119,10 +119,12 @@ export function sanitizeObject<T extends Record<string, any>>(
         sanitized[key] = sanitizeText(value);
       }
     } else if (typeof value === 'object' && !Array.isArray(value)) {
-      sanitized[key] = sanitizeObject(value, options);
+      sanitized[key] = sanitizeObject(value as Record<string, unknown>, options);
     } else if (Array.isArray(value)) {
       sanitized[key] = value.map((item) =>
-        typeof item === 'object' ? sanitizeObject(item, options) : item
+        typeof item === 'object' && item !== null
+          ? sanitizeObject(item as Record<string, unknown>, options)
+          : item
       );
     } else {
       sanitized[key] = value;
@@ -159,7 +161,7 @@ export function generateCsrfToken(): string {
 /**
  * Valida que un valor sea un número positivo
  */
-export function validatePositiveNumber(value: any, fieldName: string): number {
+export function validatePositiveNumber(value: unknown, fieldName: string): number {
   const num = Number(value);
   
   if (isNaN(num)) {
@@ -176,7 +178,7 @@ export function validatePositiveNumber(value: any, fieldName: string): number {
 /**
  * Valida que un valor sea un entero positivo
  */
-export function validatePositiveInteger(value: any, fieldName: string): number {
+export function validatePositiveInteger(value: unknown, fieldName: string): number {
   const num = validatePositiveNumber(value, fieldName);
   
   if (!Number.isInteger(num)) {

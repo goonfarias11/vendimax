@@ -1,14 +1,14 @@
 /**
- * API para gestionar puntos de venta de AFIP
- * GET /api/afip/points-of-sale - Obtiene los puntos de venta
- * POST /api/afip/points-of-sale - Crea un punto de venta
+ * API legacy compartida para gestionar puntos de venta ARCA
+ * GET /api/afip/points-of-sale (legacy) o /api/arca/points-of-sale - Obtiene los puntos de venta
+ * POST /api/afip/points-of-sale (legacy) o /api/arca/points-of-sale - Crea un punto de venta
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -16,8 +16,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
-    // Obtener configuración de AFIP
-    const afipConfig = await prisma.afipConfig.findUnique({
+    // Obtener configuración de ARCA (modelo legacy afipConfig)
+    const arcaConfig = await prisma.afipConfig.findUnique({
       where: { businessId: session.user.businessId! },
       include: {
         pointsOfSale: {
@@ -26,15 +26,16 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    if (!afipConfig) {
+    if (!arcaConfig) {
       return NextResponse.json([])
     }
 
-    return NextResponse.json(afipConfig.pointsOfSale)
-  } catch (error: any) {
+    return NextResponse.json(arcaConfig.pointsOfSale)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener puntos de venta'
     console.error('Error al obtener puntos de venta:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener puntos de venta' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -62,14 +63,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Obtener configuración de AFIP
-    const afipConfig = await prisma.afipConfig.findUnique({
+    // Obtener configuración de ARCA (modelo legacy afipConfig)
+    const arcaConfig = await prisma.afipConfig.findUnique({
       where: { businessId: session.user.businessId! },
     })
 
-    if (!afipConfig) {
+    if (!arcaConfig) {
       return NextResponse.json(
-        { error: 'Configure AFIP primero' },
+        { error: 'Configure ARCA primero' },
         { status: 400 }
       )
     }
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     // Crear punto de venta
     const pointOfSale = await prisma.pointOfSale.create({
       data: {
-        afipConfigId: afipConfig.id,
+        afipConfigId: arcaConfig.id,
         number: parseInt(number),
         name,
         emissionType: emissionType || 'CAE',
@@ -85,11 +86,16 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(pointOfSale)
-  } catch (error: any) {
+  } catch (error) {
+    const errorCode =
+      typeof error === 'object' && error !== null && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined
+    const message = error instanceof Error ? error.message : 'Error al crear punto de venta'
     console.error('Error al crear punto de venta:', error)
     
     // Verificar error de duplicado
-    if (error.code === 'P2002') {
+    if (errorCode === 'P2002') {
       return NextResponse.json(
         { error: 'Este punto de venta ya existe' },
         { status: 400 }
@@ -97,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: error.message || 'Error al crear punto de venta' },
+      { error: message },
       { status: 500 }
     )
   }

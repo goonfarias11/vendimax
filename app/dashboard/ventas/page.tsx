@@ -17,23 +17,6 @@ type Sale = {
   estado: string;
 }
 
-type SaleDetail = {
-  ticketNumber: string;
-  createdAt: string;
-  client: { name: string } | null;
-  user: { name: string };
-  subtotal: number;
-  discount: number;
-  total: number;
-  paymentMethod: string;
-  saleItems: Array<{
-    quantity: number;
-    price: number;
-    subtotal: number;
-    product: { name: string };
-  }>;
-};
-
 const paymentMethodLabels: Record<string, string> = {
   EFECTIVO: "Efectivo",
   TARJETA_DEBITO: "Tarjeta Debito",
@@ -43,17 +26,6 @@ const paymentMethodLabels: Record<string, string> = {
   CUENTA_CORRIENTE: "Cuenta Corriente",
   OTRO: "Otro",
 };
-
-const escapeHtml = (value: string): string => {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-};
-
-const formatMoney = (value: number): string => Number(value || 0).toFixed(2);
 
 // Helper para renderizar números de forma segura
 const safeNumber = (value: any): number => {
@@ -67,86 +39,12 @@ export default function VentasPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const printTicket = (sale: SaleDetail) => {
-    const printWindow = window.open("", "_blank", "width=320,height=700");
-    if (!printWindow) {
-      alert("No se pudo abrir la ventana de impresion. Habilita ventanas emergentes.");
-      return;
-    }
-
-    const ticketHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Ticket #${escapeHtml(String(sale.ticketNumber || ""))}</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; width: 280px; }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .line { border-bottom: 1px dashed #000; margin: 6px 0; }
-            .row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
-            .item-name { margin-top: 6px; font-weight: bold; }
-            .total { font-size: 14px; font-weight: bold; }
-            .small { font-size: 10px; }
-          </style>
-        </head>
-        <body>
-          <div class="center bold" style="font-size: 14px;">TICKET DE VENTA</div>
-          <div class="center">Nro ${escapeHtml(String(sale.ticketNumber || ""))}</div>
-          <div class="line"></div>
-
-          <div class="row"><span>Fecha:</span><span>${new Date(sale.createdAt).toLocaleString("es-AR")}</span></div>
-          <div class="row"><span>Vendedor:</span><span>${escapeHtml(sale.user?.name || "Usuario")}</span></div>
-          <div class="row"><span>Cliente:</span><span>${escapeHtml(sale.client?.name || "Consumidor final")}</span></div>
-
-          <div class="line"></div>
-          <div class="bold">PRODUCTOS</div>
-          <div class="line"></div>
-
-          ${sale.saleItems
-            .map((item) => `
-              <div class="item-name">${escapeHtml(item.product?.name || "Producto")}</div>
-              <div class="row"><span>${item.quantity} x $${formatMoney(item.price)}</span><span>$${formatMoney(item.subtotal)}</span></div>
-            `)
-            .join("")}
-
-          <div class="line"></div>
-          <div class="row"><span>Subtotal:</span><span>$${formatMoney(sale.subtotal)}</span></div>
-          ${sale.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${formatMoney(sale.discount)}</span></div>` : ""}
-          <div class="line"></div>
-          <div class="row total"><span>TOTAL:</span><span>$${formatMoney(sale.total)}</span></div>
-          <div class="row"><span>Pago:</span><span>${escapeHtml(paymentMethodLabels[sale.paymentMethod] || sale.paymentMethod)}</span></div>
-
-          <div class="line"></div>
-          <div class="center small">Gracias por su compra</div>
-
-          <script>
-            window.onload = function () {
-              window.print();
-              setTimeout(function () { window.close(); }, 150);
-            }
-          </script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(ticketHTML);
-    printWindow.document.close();
-  };
+  const printTicket = (saleId: string) => {
+    window.location.href = `/dashboard/ticket-preview/${saleId}`;
+  }
 
   const handlePrintSale = async (saleId: string) => {
-    try {
-      const response = await fetch(`/api/sales/${saleId}`);
-      if (!response.ok) {
-        throw new Error("No se pudo cargar la venta para imprimir");
-      }
-      const saleData = await response.json();
-      printTicket(saleData as SaleDetail);
-    } catch (error) {
-      alert("Error al imprimir ticket");
-    }
+    printTicket(saleId);
   };
 
   const columns = [
@@ -314,3 +212,5 @@ export default function VentasPage() {
     </div>
   );
 }
+
+

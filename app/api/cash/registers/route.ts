@@ -2,19 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { requirePermission } from '@/lib/auth-middleware'
+import { CashRegisterStatus, Prisma } from '@prisma/client'
+import { requireTenant } from '@/lib/security/tenant'
 
 export async function GET(request: NextRequest) {
   try {
-    // Verificar permiso básico de caja
     const permissionCheck = await requirePermission(request, 'cash:view')
-    if (!permissionCheck.authorized) {
-      return permissionCheck.response
-    }
+    if (!permissionCheck.authorized) return permissionCheck.response
 
     const session = await auth()
-    if (!session?.user?.id || !session.user.businessId) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
+
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
@@ -25,67 +28,50 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20')
     const skip = (page - 1) * limit
 
-    const where: any = {
-      businessId: session.user.businessId
+    const where: Prisma.CashRegisterWhereInput = {
+      businessId: tenant
     }
 
-    // Si es VENDEDOR, solo ver sus propias cajas
     if (session.user.role === 'VENDEDOR') {
       where.userId = session.user.id
     } else if (userId && userId !== 'all') {
-      // ADMIN/OWNER puede filtrar por vendedor
       where.userId = userId
     }
 
     if (status && status !== 'all') {
-      where.status = status
-    }
-
-    if (startDate) {
-      where.openedAt = {
-        ...where.openedAt,
-        gte: new Date(startDate)
+      const validStatuses: CashRegisterStatus[] = ['OPEN', 'CLOSED']
+      if (validStatuses.includes(status as CashRegisterStatus)) {
+        where.status = status as CashRegisterStatus
       }
     }
 
+    const openedAtFilter: Prisma.DateTimeFilter = {}
+    if (startDate) openedAtFilter.gte = new Date(startDate)
     if (endDate) {
       const end = new Date(endDate)
       end.setHours(23, 59, 59, 999)
-      where.openedAt = {
-        ...where.openedAt,
-        lte: end
-      }
+      openedAtFilter.lte = end
+    }
+    if (Object.keys(openedAtFilter).length > 0) {
+      where.openedAt = openedAtFilter
     }
 
     const [cashRegisters, total] = await Promise.all([
       prisma.cashRegister.findMany({
         where,
         include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true
-            }
-          },
+          user: { select: { id: true, name: true, email: true } },
           sales: {
-            select: {
-              id: true,
-              total: true,
-              status: true
-            }
+            select: { id: true, total: true, status: true }
           }
         },
-        orderBy: {
-          openedAt: 'desc'
-        },
+        orderBy: { openedAt: 'desc' },
         skip,
         take: limit
       }),
       prisma.cashRegister.count({ where })
     ])
 
-    // Formatear respuesta con estadísticas
     const formattedCashRegisters = cashRegisters.map(cash => {
       const activeSales = cash.sales.filter(s => s.status === 'COMPLETADO')
       const canceledSales = cash.sales.filter(s => s.status === 'CANCELADO')
@@ -109,9 +95,9 @@ export async function GET(request: NextRequest) {
           averageTicket: activeSales.length > 0 ? totalSalesAmount / activeSales.length : 0,
           hoursWorked: cash.closedAt 
             ? Math.round((cash.closedAt.getTime() - cash.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
-            : Math.round((new Date().getTime() - cash.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
+            : Math.round((Date.now() - cash.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
         },
-        sales: undefined // No enviar el array completo
+        sales: undefined
       }
     })
 
@@ -125,9 +111,9 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error al listar cajas:', error)
+    console.error("[API ERROR]", error)
     return NextResponse.json(
-      { error: 'Error al listar cajas' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

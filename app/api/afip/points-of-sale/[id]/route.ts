@@ -1,7 +1,7 @@
 /**
- * API para gestionar un punto de venta específico
- * PUT /api/afip/points-of-sale/[id] - Actualiza un punto de venta
- * DELETE /api/afip/points-of-sale/[id] - Elimina un punto de venta
+ * API legacy compartida para gestionar un punto de venta específico ARCA
+ * PUT /api/afip/points-of-sale/[id] (legacy) o /api/arca/points-of-sale/[id] - Actualiza un punto de venta
+ * DELETE /api/afip/points-of-sale/[id] (legacy) o /api/arca/points-of-sale/[id] - Elimina un punto de venta
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -37,10 +37,11 @@ export async function PUT(
     })
 
     return NextResponse.json(pointOfSale)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al actualizar punto de venta'
     console.error('Error al actualizar punto de venta:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al actualizar punto de venta' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -80,10 +81,11 @@ export async function DELETE(
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al eliminar punto de venta'
     console.error('Error al eliminar punto de venta:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al eliminar punto de venta' },
+      { error: message },
       { status: 500 }
     )
   }

@@ -58,20 +58,30 @@ async function main() {
 
   // Crear categorías
   const categoria1 = await prisma.category.upsert({
-    where: { id: 'cat-1' },
+    where: {
+      businessId_name: {
+        businessId: business.id,
+        name: 'Electrónica',
+      },
+    },
     update: {},
     create: {
-      id: 'cat-1',
+      businessId: business.id,
       name: 'Electrónica',
       description: 'Productos electrónicos y tecnología',
     },
   })
 
   const categoria2 = await prisma.category.upsert({
-    where: { id: 'cat-2' },
+    where: {
+      businessId_name: {
+        businessId: business.id,
+        name: 'Alimentos',
+      },
+    },
     update: {},
     create: {
-      id: 'cat-2',
+      businessId: business.id,
       name: 'Alimentos',
       description: 'Productos alimenticios',
     },
@@ -143,11 +153,13 @@ async function main() {
   await prisma.supplier.createMany({
     data: [
       {
+        businessId: business.id,
         name: 'Tech Supplies SA',
         email: 'ventas@techsupplies.com',
         phone: '+52 555 1111111',
       },
       {
+        businessId: business.id,
         name: 'Alimentos del Norte',
         email: 'contacto@alimentosnorte.com',
         phone: '+52 555 2222222',

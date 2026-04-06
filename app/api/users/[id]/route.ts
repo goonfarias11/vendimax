@@ -1,38 +1,32 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
-import { requirePermission } from "@/lib/auth-middleware"
-import { z } from "zod"
+import { requirePermission, requireRole } from "@/lib/auth-middleware"
+import { Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { updateUserSchema } from "@/lib/validation/user.schema"
 
-export const runtime = 'nodejs'
-
-const updateUserSchema = z.object({
-  role: z.enum(['OWNER', 'ADMIN', 'GERENTE', 'SUPERVISOR', 'VENDEDOR']).optional(),
-  isActive: z.boolean().optional()
-})
+export const runtime = "nodejs"
 
 // GET: Obtener detalles de usuario
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    
-    const permissionCheck = await requirePermission(request, 'users:view')
+    const { id } = await params
+
+    const permissionCheck = await requirePermission(request, "users:view")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
     const user = await prisma.user.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
+        businessId: tenant,
       },
       select: {
         id: true,
@@ -43,132 +37,65 @@ export async function GET(
         createdAt: true,
         updatedAt: true,
         sales: {
+          where: { businessId: tenant },
           select: {
             id: true,
             total: true,
-            createdAt: true
+            createdAt: true,
           },
-          orderBy: { createdAt: 'desc' },
-          take: 5
-        }
-      }
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        },
+      },
     })
 
     if (!user) {
       return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 })
     }
 
-    // Obtener logs de auditoría
-    // TODO: Implementar modelo AuditLog en Prisma schema
-    const auditLogs: any[] = []
-    // const auditLogs = await prisma.auditLog.findMany({
-    //   where: {
-    //     OR: [
-    //       { userId: id },
-    //       { entityId: id, entity: 'User' }
-    //     ]
-    //   },
-    //   orderBy: { createdAt: 'desc' },
-    //   take: 10,
-    //   select: {
-    //     id: true,
-    //     action: true,
-    //     details: true,
-    // //     metadata: true,
-    //     createdAt: true,
-    //     user: {
-    //       select: {
-    //         name: true,
-    //         email: true
-    //       }
-    //     }
-    //   }
-    // })
-
-    return NextResponse.json({
-      ...user,
-      auditLogs
-    })
+    return NextResponse.json(user)
   } catch (error) {
-    console.error("Error fetching user:", error)
-    return NextResponse.json({ error: "Error al cargar usuario" }, { status: 500 })
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-// PUT: Actualizar usuario
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+// PATCH: Actualizar usuario
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    
-    const permissionCheck = await requirePermission(request, 'users:edit')
+    const { id } = await params
+
+    const permissionCheck = await requirePermission(request, "users:edit")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
     const session = await auth()
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+
+    requireRole(session!.user, ["ADMIN", "OWNER"])
+
+    const parsed = updateUserSchema.safeParse(await request.json())
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation error", details: parsed.error.issues }, { status: 400 })
     }
 
-    const body = await request.json()
-    const validatedData = updateUserSchema.parse(body)
-
-    // Verificar que el usuario existe y pertenece al negocio
-    const targetUser = await prisma.user.findFirst({
-      where: {
-        id,
-        businessId: session.user.businessId
-      }
+    const user = await prisma.user.findFirst({
+      where: { id, businessId: tenant },
     })
 
-    if (!targetUser) {
+    if (!user) {
       return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 })
     }
 
-    // Validaciones de seguridad
-    // 1. No permitir que un usuario se modifique a sí mismo
-    if (id === session.user.id) {
-      return NextResponse.json(
-        { error: "No puedes modificar tu propio usuario" },
-        { status: 403 }
-      )
-    }
-
-    // 2. Un ADMIN no puede editar a un OWNER
-    if (session.user.role === 'ADMIN' && targetUser.role === 'OWNER') {
-      return NextResponse.json(
-        { error: "No tienes permisos para editar a un OWNER" },
-        { status: 403 }
-      )
-    }
-
-    // Preparar datos de actualización
-    const updateData: any = {}
-    const changes: any = {}
-
-    if (validatedData.role !== undefined && validatedData.role !== targetUser.role) {
-      updateData.role = validatedData.role
-      changes.role = { from: targetUser.role, to: validatedData.role }
-    }
-
-    if (validatedData.isActive !== undefined && validatedData.isActive !== targetUser.isActive) {
-      updateData.isActive = validatedData.isActive
-      changes.isActive = { from: targetUser.isActive, to: validatedData.isActive }
-    }
-
-    if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ message: "No hay cambios" }, { status: 200 })
-    }
-
-    updateData.updatedAt = new Date()
-
-    // Actualizar usuario
-    const updatedUser = await prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id },
-      data: updateData,
+      data: {
+        ...(parsed.data.role !== undefined && { role: parsed.data.role }),
+        ...(parsed.data.isActive !== undefined && { isActive: parsed.data.isActive }),
+      },
       select: {
         id: true,
         name: true,
@@ -176,37 +103,50 @@ export async function PUT(
         role: true,
         isActive: true,
         createdAt: true,
-        updatedAt: true
-      }
+        updatedAt: true,
+      },
     })
 
-    // Log de auditoría
-    // TODO: Implementar modelo AuditLog en Prisma schema
-    // await prisma.auditLog.create({
-    //   data: {
-    //     id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-    //     userId: session.user.id,
-    //     businessId: session.user.businessId,
-    //     action: 'USER_UPDATED',
-    //     entity: 'User',
-    //     entityId: id,
-    //     details: `Usuario ${targetUser.email} actualizado`,
-    //     metadata: { changes }
-    //   }
-    // })
-
-    // TODO: Si se suspendió el usuario, invalidar sus sesiones
-    // TODO: Si se cambió el rol, refrescar permisos en sesiones activas
-
-    return NextResponse.json(updatedUser)
+    return NextResponse.json(updated)
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Datos inválidos", details: error.issues },
-        { status: 400 }
-      )
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+// DELETE: Desactivar usuario
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+
+    const permissionCheck = await requirePermission(request, "users:delete")
+    if (!permissionCheck.authorized) {
+      return permissionCheck.response
     }
-    console.error("Error updating user:", error)
-    return NextResponse.json({ error: "Error al actualizar usuario" }, { status: 500 })
+
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+
+    requireRole(session!.user, ["ADMIN", "OWNER"])
+
+    const user = await prisma.user.findFirst({
+      where: { id, businessId: tenant },
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 })
+    }
+
+    await prisma.user.update({
+      where: { id },
+      data: { isActive: false },
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

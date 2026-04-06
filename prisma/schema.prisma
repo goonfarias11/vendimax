@@ -13,7 +13,10 @@ model User {
   email              String              @unique
   passwordHash       String
   role               UserRole            @default(VENDEDOR)
+  adminRole          AdminRole           @default(user)
   isActive           Boolean             @default(true)
+  company            String?
+  lastLoginAt        DateTime?
   businessId         String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -26,11 +29,16 @@ model User {
   purchases          Purchase[]
   refunds            Refund[]
   sales              Sale[]
+  supportMessages    SupportMessage[]    @relation("SupportMessageUser")
+  supportTickets     SupportTicket[]     @relation("SupportTicketUser")
   stockMovements     StockMovement[]
+  systemLogs         SystemLog[]         @relation("SystemLogActor")
+  systemSettings     SystemSetting[]     @relation("SystemSettingUpdater")
   business           Business?           @relation(fields: [businessId], references: [id])
 
   @@index([email])
   @@index([role])
+  @@index([adminRole])
   @@index([businessId])
   @@map("users")
 }
@@ -49,12 +57,16 @@ model Business {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   branches        Branch[]
+  categories      Category[]
   cashClosings    CashClosing[]
   clients         Client[]
   invoices        Invoice[]
   planBlockLogs   PlanBlockLog[]
   products        Product[]
+  purchases       Purchase[]
   sales           Sale[]
+  stockMovements  StockMovement[]
+  suppliers       Supplier[]
   subscription    Subscription?
   subscriptionARS SubscriptionARS?
   users           User[]
@@ -70,9 +82,6 @@ model Subscription {
   businessId           String             @unique
   planType             PlanType
   status               SubscriptionStatus @default(ACTIVE)
-  stripeCustomerId     String?            @unique
-  stripeSubscriptionId String?            @unique
-  stripePriceId        String?
   mpPreapprovalId      String?            @unique
   currentPeriodStart   DateTime
   currentPeriodEnd     DateTime
@@ -84,7 +93,6 @@ model Subscription {
 
   @@index([businessId])
   @@index([status])
-  @@index([stripeSubscriptionId])
   @@index([mpPreapprovalId])
   @@map("subscriptions")
 }
@@ -95,7 +103,6 @@ model Invoice {
   amount          Decimal   @db.Decimal(10, 2)
   currency        String    @default("ARS")
   status          String
-  stripeInvoiceId String?   @unique
   mpPaymentId     String?   @unique
   invoiceNumber   String?
   invoiceUrl      String?
@@ -105,7 +112,6 @@ model Invoice {
 
   @@index([businessId])
   @@index([status])
-  @@index([stripeInvoiceId])
   @@index([mpPaymentId])
   @@map("invoices")
 }
@@ -278,13 +284,17 @@ model WebhookLog {
 
 model Category {
   id          String    @id @default(cuid())
+  businessId  String
   name        String
   description String?
   isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  business    Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
   products    Product[]
 
+  @@unique([businessId, name])
+  @@index([businessId])
   @@index([name])
   @@map("categories")
 }
@@ -378,16 +388,21 @@ model SaleItem {
   id          String       @id @default(cuid())
   saleId      String
   productId   String
+  variantId   String?
+  businessId  String
   quantity    Int
   price       Decimal      @db.Decimal(10, 2)
   subtotal    Decimal      @db.Decimal(10, 2)
   createdAt   DateTime     @default(now())
   product     Product      @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
   sale        Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
   refundItems RefundItem[]
 
   @@index([saleId])
   @@index([productId])
+  @@index([variantId])
+  @@index([businessId])
   @@map("sale_items")
 }
 
@@ -499,17 +514,21 @@ model ClientActivityLog {
 
 model Supplier {
   id        String     @id @default(cuid())
+  businessId String
   name      String
   phone     String?
-  email     String?    @unique
+  email     String?
   address   String?
   taxId     String?
   notes     String?
   isActive  Boolean    @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   purchases Purchase[]
 
+  @@unique([businessId, email])
+  @@index([businessId])
   @@index([name])
   @@index([email])
   @@map("suppliers")
@@ -517,6 +536,7 @@ model Supplier {
 
 model Purchase {
   id            String         @id @default(cuid())
+  businessId    String
   supplierId    String
   userId        String
   warehouseId   String?
@@ -527,10 +547,12 @@ model Purchase {
   notes         String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   purchaseItems PurchaseItem[]
   supplier      Supplier       @relation(fields: [supplierId], references: [id])
   user          User           @relation(fields: [userId], references: [id])
 
+  @@index([businessId])
   @@index([supplierId])
   @@index([userId])
   @@index([warehouseId])
@@ -664,21 +686,44 @@ model ProductVariant {
   attributes Json
   price      Decimal  @db.Decimal(10, 2)
   cost       Decimal  @db.Decimal(10, 2)
+  /// @deprecated Remove after full VariantStock migration
   stock      Int      @default(0)
   image      String?
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantStocks VariantStock[]
+  saleItems   SaleItem[]
+  stockMovements StockMovement[]
 
   @@index([productId])
   @@index([sku])
   @@map("product_variants")
 }
 
+model VariantStock {
+  id          String   @id @default(cuid())
+  variantId   String
+  warehouseId String
+  businessId  String
+  stock       Int      @default(0)
+  available   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  variant     ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([variantId, warehouseId])
+  @@index([businessId])
+  @@map("variant_stocks")
+}
+
 model StockMovement {
   id          String            @id @default(cuid())
+  businessId  String
   productId   String
+  variantId   String?
   warehouseId String?
   type        StockMovementType
   quantity    Int
@@ -686,10 +731,13 @@ model StockMovement {
   reference   String?
   userId      String
   createdAt   DateTime          @default(now())
+  business    Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   product     Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant     ProductVariant?   @relation(fields: [variantId], references: [id])
   user        User              @relation(fields: [userId], references: [id])
   warehouse   Warehouse?        @relation(fields: [warehouseId], references: [id])
 
+  @@index([businessId])
   @@index([productId])
   @@index([userId])
   @@index([warehouseId])
@@ -760,6 +808,7 @@ model Warehouse {
   productStocks  ProductStock[]
   sales          Sale[]
   stockMovements StockMovement[]
+  variantStocks  VariantStock[]
 
   @@unique([branchId, code])
   @@index([branchId])
@@ -866,6 +915,76 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+model SupportTicket {
+  id         String              @id @default(cuid())
+  userId     String?
+  businessId String?
+  subject    String
+  status     SupportTicketStatus @default(open)
+  priority   SupportPriority     @default(medium)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  closedAt   DateTime?
+  messages   SupportMessage[]
+  user       User?               @relation("SupportTicketUser", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([businessId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id         String        @id @default(cuid())
+  ticketId   String
+  userId     String?
+  message    String
+  isInternal Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user       User?         @relation("SupportMessageUser", fields: [userId], references: [id])
+
+  @@index([ticketId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("support_messages")
+}
+
+model SystemLog {
+  id          String         @id @default(cuid())
+  level       SystemLogLevel @default(info)
+  category    String
+  event       String
+  description String
+  metadata    Json?
+  actorUserId String?
+  ipAddress   String?
+  createdAt   DateTime       @default(now())
+  actor       User?          @relation("SystemLogActor", fields: [actorUserId], references: [id])
+
+  @@index([level])
+  @@index([category])
+  @@index([event])
+  @@index([actorUserId])
+  @@index([createdAt])
+  @@map("system_logs")
+}
+
+model SystemSetting {
+  id           String   @id @default("global")
+  platformName String   @default("VendiMax")
+  featureFlags Json     @default("{}")
+  emailSystem  Json     @default("{}")
+  updatedById  String?
+  updatedAt    DateTime @updatedAt
+  updatedBy    User?    @relation("SystemSettingUpdater", fields: [updatedById], references: [id])
+
+  @@index([updatedById])
+  @@map("system_settings")
+}
+
 model AfipConfig {
   id           String        @id @default(cuid())
   businessId   String        @unique
@@ -940,6 +1059,33 @@ enum UserRole {
   GERENTE
   SUPERVISOR
   OWNER
+}
+
+enum AdminRole {
+  user
+  admin
+  super_admin
+}
+
+enum SupportTicketStatus {
+  open
+  pending
+  solved
+  closed
+}
+
+enum SupportPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum SystemLogLevel {
+  info
+  warning
+  error
+  critical
 }
 
 enum PlanType {

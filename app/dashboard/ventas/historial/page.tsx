@@ -180,8 +180,16 @@ export default function SalesHistoryPage() {
       if (paymentFilter !== 'all') params.append('paymentMethod', paymentFilter)
       if (statusFilter !== 'all') params.append('status', statusFilter)
       
-      const response = await fetch(`/api/sales?${params}`)
+      const response = await fetch(`/api/sales?${params}`, { credentials: "include" })
       
+      if (response.status === 401) {
+        toast.error("Tu sesión expiró. Vuelve a iniciar sesión.")
+        router.push(`/login?next=${encodeURIComponent("/dashboard/ventas/historial")}`)
+        setSales([])
+        setLoading(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
@@ -216,7 +224,12 @@ export default function SalesHistoryPage() {
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch('/api/users')
+      const response = await fetch('/api/users', { credentials: "include" })
+      if (response.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/dashboard/ventas/historial")}`)
+        setUsers([])
+        return
+      }
       if (response.ok) {
         const data = await response.json()
         const usersData = data.users || data
@@ -231,8 +244,16 @@ export default function SalesHistoryPage() {
   const viewSaleDetail = async (saleId: string) => {
     try {
       setLoadingDetail(true)
-      const response = await fetch(`/api/sales/${saleId}`)
+      const response = await fetch(`/api/sales/${saleId}`, { credentials: "include" })
       
+      if (response.status === 401) {
+        toast.error("Sesión expirada. Ingresa nuevamente.")
+        router.push(`/login?next=${encodeURIComponent("/dashboard/ventas/historial")}`)
+        setSelectedSale(null)
+        setLoadingDetail(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
@@ -309,121 +330,7 @@ export default function SalesHistoryPage() {
   }
 
   const printTicket = (sale: SaleDetail) => {
-    const printWindow = window.open('', '_blank', 'width=300,height=600')
-    if (!printWindow) {
-      toast.error('Por favor permite ventanas emergentes para imprimir')
-      return
-    }
-
-    const ticketHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Ticket #${sale.ticketNumber}</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body {
-              font-family: 'Courier New', monospace;
-              font-size: 12px;
-              padding: 10px;
-              width: 280px;
-            }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .line { border-bottom: 1px dashed #000; margin: 5px 0; }
-            .row { display: flex; justify-content: space-between; margin: 3px 0; }
-            .item-row { margin: 5px 0; }
-            .total { font-size: 14px; font-weight: bold; margin-top: 10px; }
-            table { width: 100%; border-collapse: collapse; }
-            td { padding: 2px 0; }
-            .right { text-align: right; }
-            @media print {
-              body { width: 100%; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="center bold" style="font-size: 14px;">TICKET DE VENTA</div>
-          <div class="center">Ticket #${sale.ticketNumber}</div>
-          <div class="line"></div>
-          
-          <div class="row">
-            <span>Fecha:</span>
-            <span>${new Date(sale.createdAt).toLocaleDateString('es-AR', {
-              day: '2-digit',
-              month: '2-digit', 
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })}</span>
-          </div>
-          <div class="row">
-            <span>Vendedor:</span>
-            <span>${sale.user.name}</span>
-          </div>
-          <div class="row">
-            <span>Cliente:</span>
-            <span>${sale.client?.name || 'Público General'}</span>
-          </div>
-          
-          <div class="line"></div>
-          <div class="bold">DETALLE DE PRODUCTOS</div>
-          <div class="line"></div>
-          
-          <table>
-            ${sale.saleItems.map(item => `
-              <tr>
-                <td colspan="3" class="bold">${item.product.name}</td>
-              </tr>
-              <tr>
-                <td>${item.quantity} x $${item.price.toFixed(2)}</td>
-                <td></td>
-                <td class="right">$${item.subtotal.toFixed(2)}</td>
-              </tr>
-            `).join('')}
-          </table>
-          
-          <div class="line"></div>
-          
-          <div class="row">
-            <span>Subtotal:</span>
-            <span>$${sale.subtotal.toFixed(2)}</span>
-          </div>
-          ${sale.discount > 0 ? `
-          <div class="row">
-            <span>Descuento:</span>
-            <span>-$${sale.discount.toFixed(2)}</span>
-          </div>
-          ` : ''}
-          
-          <div class="line"></div>
-          <div class="row total">
-            <span>TOTAL:</span>
-            <span>$${sale.total.toFixed(2)}</span>
-          </div>
-          
-          <div class="row">
-            <span>Pago:</span>
-            <span>${paymentMethodLabels[sale.paymentMethod]}</span>
-          </div>
-          
-          <div class="line"></div>
-          <div class="center" style="margin-top: 10px; font-size: 10px;">
-            Gracias por su compra
-          </div>
-          
-          <script>
-            window.onload = function() {
-              window.print();
-              setTimeout(() => window.close(), 100);
-            }
-          </script>
-        </body>
-      </html>
-    `
-
-    printWindow.document.write(ticketHTML)
-    printWindow.document.close()
+    window.location.href = `/dashboard/ticket-preview/${sale.id}`;
   }
 
   const filteredSales = safeArray<Sale>(sales).filter((sale: Sale) => {
@@ -854,3 +761,5 @@ export default function SalesHistoryPage() {
     </div>
   )
 }
+
+

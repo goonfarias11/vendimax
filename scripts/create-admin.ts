@@ -15,7 +15,9 @@ async function createAdmin() {
       data: {
         email: 'admin@vendimax.com',
         passwordHash: hashedPassword,
-        name: 'Admin'
+        name: 'Admin',
+        role: 'ADMIN',
+        adminRole: 'super_admin'
       }
     })
     

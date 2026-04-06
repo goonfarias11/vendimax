@@ -4,17 +4,19 @@ import { auth } from "@/lib/auth"
 import { logger } from "@/lib/logger"
 import { Decimal } from "@prisma/client/runtime/library"
 import { requirePermission } from "@/lib/auth-middleware"
+import { Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { clientPaymentSchema } from "@/lib/validation/clientPayment.schema"
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs"
 
-// Helper para registrar actividad
 async function logActivity(
   clientId: string,
   action: string,
   description: string,
   userId: string,
-  metadata?: any,
-  ipAddress?: string
+  metadata?: Prisma.InputJsonValue,
+  ipAddress?: string,
 ) {
   try {
     await prisma.clientActivityLog.create({
@@ -26,104 +28,86 @@ async function logActivity(
         userId,
         metadata,
         ipAddress,
-        createdAt: new Date()
-      }
-    });
+        createdAt: new Date(),
+      },
+    })
   } catch (error) {
-    logger.error("Error logging activity:", error);
+    logger.error("Error logging activity:", error)
   }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    const session = await auth();
-    
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const { id } = await params
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    // Verificar que el cliente pertenece al negocio
     const client = await prisma.client.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
-      }
-    });
+        businessId: tenant,
+      },
+    })
 
     if (!client) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
 
     const payments = await prisma.clientPayment.findMany({
-      where: { clientId: id },
+      where: { clientId: id, client: { businessId: tenant } },
       include: {
         user: {
           select: {
             name: true,
-            email: true
-          }
-        }
+            email: true,
+          },
+        },
       },
-      orderBy: { createdAt: 'desc' }
-    });
+      orderBy: { createdAt: "desc" },
+    })
 
-    return NextResponse.json(payments);
+    return NextResponse.json(payments)
   } catch (error) {
-    logger.error("Error fetching payments:", error);
-    return NextResponse.json({ error: "Error al cargar pagos" }, { status: 500 });
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    
-    // Verificar permiso para registrar pagos
-    const permissionCheck = await requirePermission(request, 'clients:register_payment')
+    const { id } = await params
+
+    const permissionCheck = await requirePermission(request, "clients:register_payment")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
-    const session = await auth();
-    
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+
+    const body = await request.json()
+    const parsed = clientPaymentSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Validation error", details: parsed.error.issues }, { status: 400 })
     }
+    const { amount, paymentMethod, reference, notes } = parsed.data
 
-    const body = await request.json();
-    const { amount, paymentMethod, reference, notes } = body;
-
-    // Validar datos
-    if (!amount || amount <= 0) {
-      return NextResponse.json({ error: "Monto inválido" }, { status: 400 });
-    }
-
-    if (!paymentMethod) {
-      return NextResponse.json({ error: "Método de pago requerido" }, { status: 400 });
-    }
-
-    // Verificar que el cliente pertenece al negocio
     const client = await prisma.client.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
-      }
-    });
+        businessId: tenant,
+      },
+    })
 
     if (!client) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
 
-    // Crear pago y actualizar deuda en una transacción
     const [payment, updatedClient] = await prisma.$transaction(async (tx) => {
-      // Crear pago
       const newPayment = await tx.clientPayment.create({
         data: {
           id: `payment_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
@@ -132,66 +116,61 @@ export async function POST(
           paymentMethod,
           reference: reference || null,
           notes: notes || null,
-          userId: session.user.id!,
-          createdAt: new Date()
+          userId: session!.user.id!,
+          createdAt: new Date(),
         },
         include: {
           user: {
             select: {
               name: true,
-              email: true
-            }
-          }
-        }
-      });
+              email: true,
+            },
+          },
+        },
+      })
 
-      // Actualizar deuda del cliente
-      const newDebt = Number(client.currentDebt) - Number(amount);
+      const newDebt = Math.max(0, Number(client.currentDebt) - Number(amount))
       const updatedClient = await tx.client.update({
-        where: { id },
+        where: { id, businessId: tenant },
         data: {
-          currentDebt: Math.max(0, newDebt), // No permitir deuda negativa
-          updatedAt: new Date()
-        }
-      });
+          currentDebt: newDebt,
+          updatedAt: new Date(),
+        },
+      })
 
-      // Verificar si el estado debe cambiar
-      if (updatedClient.status === 'DELINQUENT' && updatedClient.currentDebt <= updatedClient.creditLimit) {
+      if (updatedClient.status === "DELINQUENT" && updatedClient.currentDebt <= updatedClient.creditLimit) {
         await tx.client.update({
-          where: { id },
-          data: { status: 'ACTIVE' }
-        });
+          where: { id, businessId: tenant },
+          data: { status: "ACTIVE" },
+        })
       }
 
-      return [newPayment, updatedClient];
-    });
+      return [newPayment, updatedClient] as const
+    })
 
-    // Registrar actividad
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                     request.headers.get('x-real-ip') || 
-                     'unknown';
+    const ipAddress = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown"
 
     await logActivity(
       id,
-      'PAYMENT',
+      "PAYMENT",
       `Pago registrado: $${amount} vía ${paymentMethod}`,
-      session.user.id,
+      session!.user.id,
       {
         amount,
         paymentMethod,
         reference,
         previousDebt: client.currentDebt.toString(),
-        newDebt: updatedClient.currentDebt.toString()
+        newDebt: updatedClient.currentDebt.toString(),
       },
-      ipAddress
-    );
+      ipAddress,
+    )
 
     return NextResponse.json({
       payment,
-      client: updatedClient
-    });
+      client: updatedClient,
+    })
   } catch (error) {
-    logger.error("Error creating payment:", error);
-    return NextResponse.json({ error: "Error al registrar pago" }, { status: 500 });
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -3,9 +3,10 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { apiRateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
+import { CashMovementType, Prisma } from "@prisma/client"
 import { z } from "zod"
+import { requireTenant } from "@/lib/security/tenant"
 
-// Validación Zod para crear movimiento de caja
 const createCashMovementSchema = z.object({
   type: z.enum(["APERTURA", "CIERRE", "INGRESO", "EGRESO"]),
   amount: z.number().positive("El monto debe ser mayor a 0"),
@@ -15,43 +16,44 @@ const createCashMovementSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    // Rate limiting
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "127.0.0.1"
     const { success } = await apiRateLimit(ip)
-    
+
     if (!success) {
       return NextResponse.json(
         { error: "Demasiadas solicitudes. Intenta de nuevo en un minuto." },
-        { status: 429 }
+        { status: 429 },
       )
     }
 
-    // Verificar autenticación
     const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    // Obtener parámetros de consulta
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get("startDate")
     const endDate = searchParams.get("endDate")
     const type = searchParams.get("type")
 
-    // Construir filtros
-    const where: any = {}
-    
-    if (startDate || endDate) {
-      where.createdAt = {}
-      if (startDate) where.createdAt.gte = new Date(startDate)
-      if (endDate) where.createdAt.lte = new Date(endDate)
-    }
-    
-    if (type) {
-      where.type = type
+    const where: Prisma.CashMovementWhereInput = {
+      businessId: tenant,
     }
 
-    // Obtener movimientos
+    if (startDate || endDate) {
+      const createdAtFilter: Prisma.DateTimeFilter = {}
+      if (startDate) createdAtFilter.gte = new Date(startDate)
+      if (endDate) createdAtFilter.lte = new Date(endDate)
+      where.createdAt = createdAtFilter
+    }
+
+    if (type) {
+      const validTypes: CashMovementType[] = ["APERTURA", "CIERRE", "INGRESO", "EGRESO", "VENTA", "SALIDA"]
+      if (validTypes.includes(type as CashMovementType)) {
+        where.type = type as CashMovementType
+      }
+    }
+
     const movements = await prisma.cashMovement.findMany({
       where,
       include: {
@@ -67,146 +69,124 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    // Calcular totales
     const ingresos = movements
       .filter((m) => m.type === "INGRESO" || m.type === "APERTURA")
       .reduce((sum, m) => sum + Number(m.amount), 0)
-    
+
     const egresos = movements
-      .filter((m) => m.type === "EGRESO" || m.type === "CIERRE")
+      .filter((m) => m.type === "EGRESO" || m.type === "CIERRE" || m.type === "SALIDA")
       .reduce((sum, m) => sum + Number(m.amount), 0)
-    
+
     const totals = {
       ingresos,
       egresos,
-      balance: ingresos - egresos
+      balance: ingresos - egresos,
     }
 
-    logger.info("Movimientos de caja obtenidos", { 
-      userId: session.user.id,
+    logger.info("Movimientos de caja obtenidos", {
+      userId: session!.user.id,
       count: movements.length,
-      filters: { startDate, endDate, type }
+      filters: { startDate, endDate, type },
     })
 
-    // Formatear movimientos con números convertidos
-    const formattedMovements = movements.map(m => ({
+    const formattedMovements = movements.map((m) => ({
       ...m,
-      amount: Number(m.amount)
+      amount: Number(m.amount),
     }))
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       movements: formattedMovements,
       totals,
-      success: true 
+      success: true,
     })
-  } catch (error: any) {
-    logger.error("Error al obtener movimientos de caja:", error)
-    return NextResponse.json(
-      { error: "Error al obtener movimientos de caja" },
-      { status: 500 }
-    )
+  } catch (error: unknown) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "127.0.0.1"
     const { success } = await apiRateLimit(ip)
-    
+
     if (!success) {
       return NextResponse.json(
         { error: "Demasiadas solicitudes. Intenta de nuevo en un minuto." },
-        { status: 429 }
+        { status: 429 },
       )
     }
 
-    // Verificar autenticación
     const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    // Parsear y validar el body
     const body = await request.json()
     const validation = createCashMovementSchema.safeParse(body)
 
     if (!validation.success) {
-      logger.warn("Validación fallida en crear movimiento de caja", {
-        errors: validation.error.issues,
-        body,
-      })
       return NextResponse.json(
-        { 
-          error: "Datos inválidos",
-          details: validation.error.issues.map(issue => ({
-            field: issue.path.join('.'),
-            message: issue.message
-          }))
+        {
+          error: "Validation error",
+          details: validation.error.issues.map((issue) => ({
+            field: issue.path.join("."),
+            message: issue.message,
+          })),
         },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
     const { type, amount, description, reference } = validation.data
 
-    // Validaciones de negocio
     if (type === "CIERRE") {
-      // Verificar que haya una apertura sin cierre
       const lastOpening = await prisma.cashMovement.findFirst({
-        where: { type: "APERTURA" },
+        where: { type: "APERTURA", businessId: tenant },
         orderBy: { createdAt: "desc" },
       })
 
       const lastClosing = await prisma.cashMovement.findFirst({
-        where: { type: "CIERRE" },
+        where: { type: "CIERRE", businessId: tenant },
         orderBy: { createdAt: "desc" },
       })
 
       if (!lastOpening) {
-        return NextResponse.json(
-          { error: "No hay una apertura de caja registrada" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: "No hay una apertura de caja registrada" }, { status: 400 })
       }
 
       if (lastClosing && lastClosing.createdAt > lastOpening.createdAt) {
-        return NextResponse.json(
-          { error: "La caja ya está cerrada" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: "La caja ya está cerrada" }, { status: 400 })
       }
     }
 
     if (type === "APERTURA") {
-      // Verificar que no haya una apertura sin cierre
       const lastOpening = await prisma.cashMovement.findFirst({
-        where: { type: "APERTURA" },
+        where: { type: "APERTURA", businessId: tenant },
         orderBy: { createdAt: "desc" },
       })
 
       const lastClosing = await prisma.cashMovement.findFirst({
-        where: { type: "CIERRE" },
+        where: { type: "CIERRE", businessId: tenant },
         orderBy: { createdAt: "desc" },
       })
 
       if (lastOpening && (!lastClosing || lastClosing.createdAt < lastOpening.createdAt)) {
         return NextResponse.json(
           { error: "Ya existe una caja abierta. Ciérrala antes de abrir una nueva." },
-          { status: 400 }
+          { status: 400 },
         )
       }
     }
 
-    // Crear el movimiento de caja
     const movement = await prisma.cashMovement.create({
       data: {
         type,
         amount,
         description,
         reference,
-        userId: session.user.id,
-        businessId: session.user.businessId!,
+        userId: session!.user.id,
+        businessId: tenant,
       },
       include: {
         user: {
@@ -222,28 +202,31 @@ export async function POST(request: NextRequest) {
       movementId: movement.id,
       type: movement.type,
       amount: Number(movement.amount),
-      userId: session.user.id,
+      userId: session!.user.id,
     })
 
-    return NextResponse.json({ 
-      movement,
-      success: true,
-      message: `${type === "APERTURA" ? "Caja abierta" : type === "CIERRE" ? "Caja cerrada" : "Movimiento registrado"} exitosamente`
-    }, { status: 201 })
-  } catch (error: any) {
-    logger.error("Error al crear movimiento de caja:", error)
+    return NextResponse.json(
+      {
+        movement,
+        success: true,
+        message: `${
+          type === "APERTURA" ? "Caja abierta" : type === "CIERRE" ? "Caja cerrada" : "Movimiento registrado"
+        } exitosamente`,
+      },
+      { status: 201 },
+    )
+  } catch (error: unknown) {
+    console.error("[API ERROR]", error)
 
-    // Manejar errores de Prisma
-    if (error.code === "P2002") {
-      return NextResponse.json(
-        { error: "Ya existe un movimiento con esa referencia" },
-        { status: 409 }
-      )
+    const prismaCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: string }).code
+        : undefined
+
+    if (prismaCode === "P2002") {
+      return NextResponse.json({ error: "Ya existe un movimiento con esa referencia" }, { status: 409 })
     }
 
-    return NextResponse.json(
-      { error: "Error al crear movimiento de caja" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

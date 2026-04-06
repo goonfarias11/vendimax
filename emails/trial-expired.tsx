@@ -103,8 +103,8 @@ export const TrialExpiredEmail = ({
 
         <Text style={footer}>
           ¿Tienes preguntas? Contáctanos en{' '}
-          <Link href="mailto:soporte@vendimax.com" style={link}>
-            soporte@vendimax.com
+          <Link href="mailto:soportevendimax@gmail.com" style={link}>
+            soportevendimax@gmail.com
           </Link>
         </Text>
 

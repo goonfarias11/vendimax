@@ -6,6 +6,10 @@
 import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
+type BusinessScopedUser = {
+  businessId?: string | null
+}
+
 /**
  * Obtiene el businessId de la sesión actual
  * @returns businessId o null si no hay sesión o no tiene negocio asociado
@@ -32,6 +36,23 @@ export async function requireBusinessId(): Promise<string> {
 }
 
 /**
+ * Helper global para construir filtros where con alcance por negocio.
+ */
+export function withBusinessScope<T extends Record<string, unknown>>(
+  user: BusinessScopedUser,
+  where?: T
+) {
+  if (!user?.businessId) {
+    throw new Error("No business ID found in user scope")
+  }
+
+  return {
+    businessId: user.businessId,
+    ...(where || {}),
+  }
+}
+
+/**
  * Verifica que un recurso pertenezca al negocio actual
  * @param resourceBusinessId - El businessId del recurso a verificar
  * @param currentBusinessId - El businessId de la sesión actual (opcional, se obtiene de la sesión si no se pasa)
@@ -54,7 +75,7 @@ export async function verifyBusinessOwnership(
  *   businessScope(businessId, { isActive: true })
  * )
  */
-export function businessScope<T extends Record<string, any>>(
+export function businessScope<T extends Record<string, unknown>>(
   businessId: string,
   additionalWhere?: T
 ) {

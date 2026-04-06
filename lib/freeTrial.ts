@@ -65,11 +65,12 @@ export async function createFreeTrial(businessId: string): Promise<{
       success: true,
       subscriptionId: subscription.id,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Error al crear prueba gratuita";
     console.error("[createFreeTrial]", error);
     return {
       success: false,
-      error: error.message || "Error al crear prueba gratuita",
+      error: message,
     };
   }
 }

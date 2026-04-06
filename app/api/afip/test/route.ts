@@ -1,15 +1,14 @@
 /**
- * API para probar conexión con AFIP
- * GET /api/afip/test - Verifica la conexión y configuración de AFIP
+ * API legacy compartida para probar conexión con ARCA
+ * GET /api/afip/test (legacy) o /api/arca/test - Verifica la conexión y configuración
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { createAfipClient } from '@/lib/afip/client'
+import { createArcaClient } from '@/lib/arca/client'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -22,8 +21,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
     }
 
-    // Obtener configuración de AFIP
-    const afipConfig = await prisma.afipConfig.findUnique({
+    // Obtener configuración de ARCA (modelo legacy afipConfig)
+    const arcaConfig = await prisma.afipConfig.findUnique({
       where: { businessId: session.user.businessId! },
       include: {
         pointsOfSale: {
@@ -32,63 +31,65 @@ export async function GET(request: NextRequest) {
       },
     })
 
-    if (!afipConfig) {
+    if (!arcaConfig) {
       return NextResponse.json(
         {
           success: false,
-          error: 'No hay configuración de AFIP',
-          message: 'Configure AFIP en Ajustes > Facturación Electrónica',
+          error: 'No hay configuración de ARCA',
+          message: 'Configure ARCA en Ajustes > Facturación Electrónica',
         },
         { status: 404 }
       )
     }
 
-    // Crear cliente AFIP
-    const afipClient = createAfipClient({
-      cuit: afipConfig.cuit,
-      cert: afipConfig.cert || undefined,
-      key: afipConfig.key || undefined,
-      certPath: afipConfig.certPath || undefined,
-      keyPath: afipConfig.keyPath || undefined,
-      production: afipConfig.production,
+    // Crear cliente ARCA (cliente legacy Afip)
+    const arcaClient = createArcaClient({
+      cuit: arcaConfig.cuit,
+      cert: arcaConfig.cert || undefined,
+      key: arcaConfig.key || undefined,
+      certPath: arcaConfig.certPath || undefined,
+      keyPath: arcaConfig.keyPath || undefined,
+      production: arcaConfig.production,
     })
 
     // Intentar obtener los tipos de comprobante como test
     try {
-      const voucherTypes = await afipClient.getVoucherTypes()
+      const voucherTypes = await arcaClient.getVoucherTypes()
 
       return NextResponse.json({
         success: true,
-        message: 'Conexión exitosa con AFIP',
+        message: 'Conexión exitosa con ARCA',
         config: {
-          cuit: afipConfig.cuit,
-          razonSocial: afipConfig.razonSocial,
-          production: afipConfig.production,
-          isActive: afipConfig.isActive,
+          cuit: arcaConfig.cuit,
+          razonSocial: arcaConfig.razonSocial,
+          production: arcaConfig.production,
+          isActive: arcaConfig.isActive,
         },
-        pointsOfSale: afipConfig.pointsOfSale,
+        pointsOfSale: arcaConfig.pointsOfSale,
         voucherTypes: voucherTypes.slice(0, 10), // Solo los primeros 10
       })
-    } catch (afipError: any) {
+    } catch (arcaError: unknown) {
+      const arcaErrorMessage = arcaError instanceof Error ? arcaError.message : 'Error de conexión desconocido'
       return NextResponse.json(
         {
           success: false,
-          error: 'Error al conectar con AFIP',
-          message: afipError.message,
+          error: 'Error al conectar con ARCA',
+          message: arcaErrorMessage,
           config: {
-            cuit: afipConfig.cuit,
-            production: afipConfig.production,
+            cuit: arcaConfig.cuit,
+            production: arcaConfig.production,
           },
         },
         { status: 500 }
       )
     }
-  } catch (error: any) {
-    console.error('Error al probar conexión AFIP:', error)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error al probar conexión'
+    console.error('Error al probar conexión ARCA:', error)
     return NextResponse.json(
       { 
         success: false,
-        error: error.message || 'Error al probar conexión' 
+        error: message 
       },
       { status: 500 }
     )

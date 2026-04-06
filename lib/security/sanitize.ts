@@ -55,7 +55,6 @@ export function sanitizeHTML(html: string): string {
   if (!html) return ''
   
   const allowedTags = ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li']
-  const allowedAttributes = ['href', 'title']
   
   // Simple sanitization - en producción usar librería como DOMPurify
   let sanitized = html
@@ -110,18 +109,20 @@ export function isValidId(id: string): boolean {
 /**
  * Sanitiza un objeto completo recursivamente
  */
-export function sanitizeObject<T extends Record<string, any>>(obj: T): T {
-  const sanitized: any = {}
+export function sanitizeObject<T extends Record<string, unknown>>(obj: T): T {
+  const sanitized: Record<string, unknown> = {}
   
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value === 'string') {
       sanitized[key] = sanitizeString(value)
     } else if (Array.isArray(value)) {
       sanitized[key] = value.map(item => 
-        typeof item === 'object' ? sanitizeObject(item) : sanitizeString(String(item))
+        typeof item === 'object' && item !== null
+          ? sanitizeObject(item as Record<string, unknown>)
+          : sanitizeString(String(item))
       )
     } else if (typeof value === 'object' && value !== null) {
-      sanitized[key] = sanitizeObject(value)
+      sanitized[key] = sanitizeObject(value as Record<string, unknown>)
     } else {
       sanitized[key] = value
     }

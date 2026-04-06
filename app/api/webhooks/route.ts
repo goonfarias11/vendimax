@@ -9,7 +9,7 @@ import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import crypto from 'crypto'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth()
 
@@ -27,10 +27,11 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(webhooks)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener webhooks'
     console.error('Error al obtener webhooks:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener webhooks' },
+      { error: message },
       { status: 500 }
     )
   }
@@ -82,10 +83,11 @@ export async function POST(request: NextRequest) {
     })
 
     return NextResponse.json(webhook)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al crear webhook'
     console.error('Error al crear webhook:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al crear webhook' },
+      { error: message },
       { status: 500 }
     )
   }

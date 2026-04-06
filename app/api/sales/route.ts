@@ -1,22 +1,17 @@
 import { NextResponse, NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
-import { createSaleSchema } from "@/lib/validations/sale"
 import { salesRateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
 import { z } from "zod"
-import { verifyProductOwnership } from "@/lib/security/multi-tenant"
 import { requirePermission } from "@/lib/auth-middleware"
+import { PaymentMethod, Prisma, SaleStatus } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { saleSchema } from "@/lib/validation/sale.schema"
 
 export const runtime = 'nodejs'
 
-// Función para sanitizar números y evitar NaN/undefined en respuestas
-const safeNumber = (value: any): number => {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
-};
-
-// GET: Listar ventas con filtros avanzados
+// GET: Listar ventas para historial
 export async function GET(request: NextRequest) {
   try {
     const permissionCheck = await requirePermission(request, 'pos:access')
@@ -25,172 +20,89 @@ export async function GET(request: NextRequest) {
     }
 
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const businessId = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const userId = searchParams.get('userId')
-    const clientId = searchParams.get('clientId')
     const paymentMethod = searchParams.get('paymentMethod')
     const status = searchParams.get('status')
-    const search = searchParams.get('search')
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '20')
+    const page = Math.max(1, Number(searchParams.get('page') || 1))
+    const limit = Math.max(1, Number(searchParams.get('limit') || 50))
     const skip = (page - 1) * limit
 
-    const where: any = {
-      businessId: session.user.businessId
+    const where: Prisma.SaleWhereInput = {
+      businessId,
     }
 
-    // Si es VENDEDOR, solo ver sus ventas
-    if (session.user.role === 'VENDEDOR') {
-      where.userId = session.user.id
-    } else if (userId && userId !== 'all') {
+    const createdAtFilter: Prisma.DateTimeFilter = {}
+    if (startDate) {
+      createdAtFilter.gte = new Date(startDate)
+    }
+    if (endDate) {
+      createdAtFilter.lte = new Date(endDate)
+    }
+    if (Object.keys(createdAtFilter).length > 0) {
+      where.createdAt = createdAtFilter
+    }
+
+    if (userId && userId !== 'all') {
       where.userId = userId
     }
 
-    if (clientId && clientId !== 'all') {
-      where.clientId = clientId
-    }
-
     if (paymentMethod && paymentMethod !== 'all') {
-      where.paymentMethod = paymentMethod
+      where.paymentMethod = paymentMethod as PaymentMethod
     }
 
     if (status && status !== 'all') {
-      where.status = status
-    }
-
-    if (startDate || endDate) {
-      where.createdAt = {}
-      if (startDate) {
-        where.createdAt.gte = new Date(startDate)
-      }
-      if (endDate) {
-        const end = new Date(endDate)
-        end.setHours(23, 59, 59, 999)
-        where.createdAt.lte = end
-      }
-    }
-
-    if (search) {
-      where.ticketNumber = { contains: search }
+      where.status = status as SaleStatus
     }
 
     const [sales, total] = await Promise.all([
       prisma.sale.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          ticketNumber: true,
+          createdAt: true,
+          total: true,
+          subtotal: true,
+          discount: true,
+          paymentMethod: true,
+          status: true,
           client: {
             select: {
               id: true,
-              name: true
-            }
+              name: true,
+            },
           },
           user: {
             select: {
               id: true,
               name: true,
-              email: true
-            }
+              email: true,
+            },
           },
-          saleItems: {
+          _count: {
             select: {
-              id: true,
-              productId: true,
-              quantity: true,
-              price: true,
-              subtotal: true,
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true
-                }
-              }
-            }
+              saleItems: true,
+            },
           },
-          salePayments: {
-            select: {
-              id: true,
-              paymentMethod: true,
-              amount: true,
-              reference: true
-            }
-          }
         },
         orderBy: { createdAt: 'desc' },
         skip,
-        take: limit
+        take: limit,
       }),
-      prisma.sale.count({ where })
+      prisma.sale.count({ where }),
     ])
 
-    // Sanitizar y formatear respuesta (tolerante a datos corruptos)
-    const formattedSales = sales.map(sale => {
-      try {
-        const sanitizedTotal = safeNumber(sale.total);
-        const sanitizedSubtotal = safeNumber(sale.subtotal);
-        
-        // Debug: Log si hay valores corruptos
-        if (sanitizedTotal === 0 && sale.saleItems.length > 0) {
-          console.warn(`⚠️ Venta ${sale.id} tiene total 0 pero ${sale.saleItems.length} items`);
-          console.log('Datos originales:', { 
-            total: sale.total, 
-            subtotal: sale.subtotal,
-            type: typeof sale.total 
-          });
-        }
-        
-        return {
-          id: sale.id,
-          ticketNumber: sale.ticketNumber,
-          createdAt: sale.createdAt,
-          client: sale.client,
-          user: sale.user,
-          subtotal: sanitizedSubtotal,
-          discount: safeNumber(sale.discount),
-          total: sanitizedTotal,
-          paymentMethod: sale.paymentMethod,
-          hasMixedPayment: sale.hasMixedPayment,
-          status: sale.status,
-          itemsCount: sale.saleItems.length,
-          saleItems: sale.saleItems.map(item => ({
-            id: item.id,
-            productId: item.productId,
-            quantity: safeNumber(item.quantity),
-            price: safeNumber(item.price),
-            subtotal: safeNumber(item.subtotal),
-            product: item.product
-          })),
-          payments: sale.salePayments?.map(p => ({
-            method: p.paymentMethod,
-            amount: safeNumber(p.amount),
-            reference: p.reference
-          })) || null
-        };
-      } catch (error) {
-        console.error(`⚠️ Error sanitizando venta ${sale.id}:`, error);
-        // Devolver venta con valores seguros si falla
-        return {
-          id: sale.id,
-          ticketNumber: sale.ticketNumber,
-          createdAt: sale.createdAt,
-          client: sale.client,
-          user: sale.user,
-          subtotal: 0,
-          discount: 0,
-          total: 0,
-          paymentMethod: sale.paymentMethod,
-          status: sale.status,
-          itemsCount: 0,
-          saleItems: []
-        };
-      }
-    });
+    const formattedSales = sales.map((sale) => ({
+      ...sale,
+      itemsCount: sale._count?.saleItems ?? 0,
+    }))
 
     return NextResponse.json({
       sales: formattedSales,
@@ -198,31 +110,110 @@ export async function GET(request: NextRequest) {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.ceil(total / limit),
+      },
     })
   } catch (error) {
-    console.error("Error fetching sales:", error)
-    return NextResponse.json({ error: "Error al cargar ventas" }, { status: 500 })
+    console.error('[API ERROR] GET /api/sales', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
+// Función para sanitizar números y evitar NaN/undefined
+const safeNumber = (value: unknown): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+// Función para generar IDs únicos
+const generateId = (prefix: string = ''): string => {
+  return `${prefix}${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+};
+
+// Función para validar datos de entrada antes del procesamiento
+const validateSaleData = (data: any) => {
+  console.log("🔍 [VALIDATION] Iniciando validación de datos de venta");
+
+  // Validar que haya items
+  if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+    throw new Error("El carrito está vacío. Agregue al menos un producto.");
+  }
+
+  // Validar cada item
+  for (const item of data.items) {
+    if (!item.productId || typeof item.productId !== 'string') {
+      throw new Error(`Producto inválido en el carrito: ${JSON.stringify(item)}`);
+    }
+
+    const quantity = safeNumber(item.quantity);
+    if (quantity <= 0) {
+      throw new Error(`Cantidad inválida para producto ${item.productId}: ${item.quantity}`);
+    }
+
+    const price = safeNumber(item.price || item.unitPrice);
+    if (price <= 0) {
+      throw new Error(`Precio inválido para producto ${item.productId}: ${item.price || item.unitPrice}`);
+    }
+  }
+
+  console.log("✅ [VALIDATION] Datos básicos validados correctamente");
+  return true;
+};
+
+// Función para calcular totales de manera segura
+const calculateTotals = (items: any[], discount: number = 0, discountType: string = 'fixed') => {
+  console.log("🧮 [CALCULATION] Calculando totales de venta");
+
+  let subtotal = 0;
+
+  for (const item of items) {
+    const quantity = safeNumber(item.quantity) || 1;
+    const price = safeNumber(item.price || item.unitPrice);
+    const itemSubtotal = price * quantity;
+
+    if (!Number.isFinite(itemSubtotal)) {
+      throw new Error(`Cálculo inválido para item: ${JSON.stringify(item)}`);
+    }
+
+    subtotal += itemSubtotal;
+  }
+
+  const discountAmount = discountType === 'percentage'
+    ? (subtotal * safeNumber(discount)) / 100
+    : safeNumber(discount);
+
+  const total = Math.max(0, subtotal - discountAmount);
+
+  console.log(`✅ [CALCULATION] Subtotal: ${subtotal}, Descuento: ${discountAmount}, Total: ${total}`);
+
+  return { subtotal, discountAmount, total };
+};
+
+// POST: Crear nueva venta
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  let businessId: string;
+  let session: any;
+
   try {
-    // Verificar permiso para crear ventas
+    console.log("🚀 [SALES API] Iniciando procesamiento de venta");
+
+    // 1. Verificar permisos
     const permissionCheck = await requirePermission(request, 'pos:create_sale')
     if (!permissionCheck.authorized) {
+      console.log("❌ [PERMISSION] Permiso denegado para crear venta");
       return permissionCheck.response
     }
 
-    // Rate limiting
+    // 2. Rate limiting
     const ip = request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip") ?? "127.0.0.1"
     const { success, limit, reset, remaining } = await salesRateLimit(ip)
-    
+
     if (!success) {
+      console.log("❌ [RATE LIMIT] Límite de solicitudes excedido");
       return NextResponse.json(
         { error: "Demasiadas solicitudes. Intenta de nuevo más tarde." },
-        { 
+        {
           status: 429,
           headers: {
             "X-RateLimit-Limit": limit.toString(),
@@ -233,39 +224,48 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Autenticación
-    const session = await auth()
-    if (!session?.user?.id || !session?.user?.businessId) {
-      return NextResponse.json(
-        { error: "No autorizado" }, 
-        { status: 401 }
-      )
+    // 3. Autenticación y tenant
+    session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      console.log("❌ [AUTH] Tenant no autorizado");
+      return tenantResult.response
+    }
+    businessId = tenantResult.tenant
+    console.log(`✅ [AUTH] Usuario autenticado: ${session.user.id}, Business: ${businessId}`);
+
+    // 4. Obtener y validar datos de entrada
+    const body = await request.json()
+    console.log("📦 [DATA] Datos recibidos:", JSON.stringify(body, null, 2));
+
+    // Validación inicial antes de Zod
+    validateSaleData(body);
+
+    // 5. Normalizar items para el esquema
+    if (Array.isArray(body.items)) {
+      body.items = body.items.map((item: any) => {
+        const price = safeNumber(item.price ?? item.unitPrice);
+        const quantity = safeNumber(item.quantity) || 1;
+        const subtotal = price * quantity;
+
+        return {
+          ...item,
+          quantity,
+          unitPrice: price,
+          price,
+          subtotal,
+          discount: safeNumber(item.discount) || 0,
+        };
+      });
     }
 
-    const businessId = session.user.businessId
-    const body = await request.json()
-    
-    // Log temporal para debug
-    console.log("=== DATOS RECIBIDOS ===")
-    console.log("Body completo:", JSON.stringify(body, null, 2))
-    console.log("Tipos de datos:")
-    console.log("- subtotal:", typeof body.subtotal, body.subtotal)
-    console.log("- total:", typeof body.total, body.total)
-    console.log("- discount:", typeof body.discount, body.discount)
-    if (body.items && body.items.length > 0) {
-      console.log("- items[0].quantity:", typeof body.items[0].quantity, body.items[0].quantity)
-      console.log("- items[0].unitPrice:", typeof body.items[0].unitPrice, body.items[0].unitPrice)
-      console.log("- items[0].subtotal:", typeof body.items[0].subtotal, body.items[0].subtotal)
-    }
-    
-    // Validar datos de entrada
-    const validationResult = createSaleSchema.safeParse(body)
+    // 6. Validar con Zod
+    const validationResult = saleSchema.safeParse(body)
     if (!validationResult.success) {
-      console.error("=== VALIDACIÓN FALLIDA ===")
-      console.error("Errores completos:", JSON.stringify(validationResult.error.issues, null, 2))
+      console.error("❌ [VALIDATION] Errores de validación:", validationResult.error.issues);
       return NextResponse.json(
-        { 
-          error: "Datos inválidos",
+        {
+          error: "Datos de venta inválidos",
           details: validationResult.error.issues.map(e => ({
             field: e.path.join('.'),
             message: e.message,
@@ -275,13 +275,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    
-    console.log("=== VALIDACIÓN EXITOSA ===")
-    console.log("Datos validados:", JSON.stringify(validationResult.data, null, 2))
-    
-    const { 
-      clientId, 
-      paymentMethod, 
+
+    const {
+      clientId,
+      paymentMethod,
       items,
       discount = 0,
       discountType = "fixed",
@@ -289,174 +286,21 @@ export async function POST(request: NextRequest) {
       payments = []
     } = validationResult.data
 
-    // Función segura para validar y convertir números (anti-NaN)
-    const safeNumber = (value: any): number => {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : 0;
-    };
+    console.log(`✅ [VALIDATION] Datos validados: ${items.length} items, método de pago: ${paymentMethod}`);
 
-    // Recalcular y validar totales en el backend (nunca confiar en el frontend)
-    const calculatedSubtotal = items.reduce((sum: number, item: any) => {
-      const qty = safeNumber(item.quantity) || 1;
-      const price = safeNumber(item.unitPrice);
-      const itemSubtotal = price * qty;
-      
-      // Validar que no haya NaN
-      if (!Number.isFinite(itemSubtotal)) {
-        console.error(`⚠️ Item con valores inválidos:`, item);
-        return sum;
-      }
-      
-      return sum + itemSubtotal;
-    }, 0);
-    
-    const calculatedDiscountAmount = discountType === "percentage" 
-      ? safeNumber((calculatedSubtotal * safeNumber(discount)) / 100)
-      : safeNumber(discount);
-    
-    const calculatedTotal = Math.max(0, safeNumber(calculatedSubtotal - calculatedDiscountAmount));
-    
-    console.log("=== CÁLCULOS DEL BACKEND (ANTI-NaN) ===");
-    console.log("Subtotal calculado:", calculatedSubtotal, "isFinite:", Number.isFinite(calculatedSubtotal));
-    console.log("Descuento calculado:", calculatedDiscountAmount, "isFinite:", Number.isFinite(calculatedDiscountAmount));
-    console.log("Total calculado:", calculatedTotal, "isFinite:", Number.isFinite(calculatedTotal));
-    
-    // Validación final: si algún valor es NaN, rechazar
-    if (!Number.isFinite(calculatedSubtotal) || !Number.isFinite(calculatedTotal)) {
-      console.error("❌ ERROR: Cálculos resultaron en NaN");
-      return NextResponse.json(
-        { error: "Error en los cálculos. Los valores numéricos no son válidos." },
-        { status: 400 }
-      );
-    }
+    // 7. Calcular totales de manera segura
+    const { subtotal, discountAmount, total } = calculateTotals(items, discount, discountType);
 
-    // Verificar stock antes de crear la venta
-    for (const item of items) {
-      // Verificar que el producto pertenezca al negocio
-      await verifyProductOwnership(item.productId, businessId)
-      
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-        select: { name: true, isActive: true, businessId: true, hasVariants: true }
-      })
-
-      if (!product || product.businessId !== businessId) {
-        return NextResponse.json(
-          { error: `Producto ${item.productId} no encontrado` },
-          { status: 400 }
-        )
-      }
-
-      if (!product.isActive) {
-        return NextResponse.json(
-          { error: `El producto ${product.name} está inactivo` },
-          { status: 400 }
-        )
-      }
-
-      // Validar stock para productos con variantes
-      if (item.variantId) {
-        const variant = await prisma.productVariant.findUnique({
-          where: { id: item.variantId },
-          select: { stock: true, name: true, isActive: true }
-        })
-
-        if (!variant) {
-          return NextResponse.json(
-            { error: `Variante no encontrada para ${product.name}` },
-            { status: 400 }
-          )
-        }
-
-        if (!variant.isActive) {
-          return NextResponse.json(
-            { error: `La variante ${variant.name} de ${product.name} está inactiva` },
-            { status: 400 }
-          )
-        }
-
-        if (variant.stock < item.quantity) {
-          return NextResponse.json(
-            { error: `Stock insuficiente para ${product.name} - ${variant.name}. Disponible: ${variant.stock}` },
-            { status: 400 }
-          )
-        }
-      } else {
-        // Validar stock para productos simples usando ProductStock
-        // Buscar sucursal principal
-        let mainBranch = await prisma.branch.findFirst({
-          where: {
-            businessId,
-            isMain: true,
-            isActive: true
-          }
-        })
-
-        if (!mainBranch) {
-          mainBranch = await prisma.branch.findFirst({
-            where: {
-              businessId,
-              isActive: true
-            }
-          })
-        }
-
-        if (mainBranch) {
-          // Buscar almacén principal
-          let mainWarehouse = await prisma.warehouse.findFirst({
-            where: {
-              branchId: mainBranch.id,
-              isMain: true,
-              isActive: true
-            }
-          })
-
-          if (!mainWarehouse) {
-            mainWarehouse = await prisma.warehouse.findFirst({
-              where: {
-                branchId: mainBranch.id,
-                isActive: true
-              }
-            })
-          }
-
-          if (mainWarehouse) {
-            // Validar stock disponible
-            const productStock = await prisma.productStock.findUnique({
-              where: {
-                productId_warehouseId: {
-                  productId: item.productId,
-                  warehouseId: mainWarehouse.id
-                }
-              },
-              select: { available: true }
-            })
-
-            if (productStock && productStock.available < item.quantity) {
-              return NextResponse.json(
-                { error: `Stock insuficiente para ${product.name}. Disponible: ${productStock.available}` },
-                { status: 400 }
-              )
-            }
-          }
-        }
-      }
-    }
-
-    // Usar los valores calculados en el backend para mayor confiabilidad
-    const subtotal = calculatedSubtotal
-    const discountAmount = calculatedDiscountAmount
-    const total = calculatedTotal
-
-    // Generar número de ticket
+    // 8. Generar número de ticket único
     const lastSale = await prisma.sale.findFirst({
       where: { userId: session.user.id },
       orderBy: { ticketNumber: "desc" },
       select: { ticketNumber: true }
     })
     const ticketNumber = (lastSale?.ticketNumber || 0) + 1
+    console.log(`🎫 [TICKET] Número de ticket generado: ${ticketNumber}`);
 
-    // Buscar caja abierta del usuario
+    // 9. Buscar caja abierta del usuario
     const openCashRegister = await prisma.cashRegister.findFirst({
       where: {
         userId: session.user.id,
@@ -465,50 +309,51 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Crear venta con items en una transacción
+    if (!openCashRegister) {
+      console.log("⚠️ [CASH REGISTER] No hay caja abierta para el usuario");
+    }
+
+    // 10. EJECUTAR TRANSACCIÓN PRINCIPAL
+    console.log("🔄 [TRANSACTION] Iniciando transacción de venta");
     const sale = await prisma.$transaction(async (tx) => {
-      // Crear la venta
+      // 10.1 Crear la venta
+      console.log("📝 [SALE] Creando registro de venta");
       const newSale = await tx.sale.create({
         data: {
           clientId,
           userId: session.user.id,
           businessId,
-          cashRegisterId: openCashRegister?.id, // Asociar a caja abierta
+          cashRegisterId: openCashRegister?.id,
           total,
           subtotal,
           tax: 0,
           discount: discountAmount,
           discountType,
-          paymentMethod,
+          paymentMethod: paymentMethod as PaymentMethod,
           hasMixedPayment,
           ticketNumber,
           status: "COMPLETADO"
         }
       })
+      console.log(`✅ [SALE] Venta creada con ID: ${newSale.id}`);
 
-      // Buscar sucursal principal o la primera activa del negocio
+      // 10.2 Obtener o crear sucursal y almacén
+      console.log("🏢 [BRANCH] Buscando sucursal principal");
       let mainBranch = await tx.branch.findFirst({
-        where: {
-          businessId,
-          isMain: true,
-          isActive: true
-        }
+        where: { businessId, isMain: true, isActive: true }
       })
 
       if (!mainBranch) {
         mainBranch = await tx.branch.findFirst({
-          where: {
-            businessId,
-            isActive: true
-          }
+          where: { businessId, isActive: true }
         })
       }
 
-      // Si no existe ninguna sucursal, crear una principal
       if (!mainBranch) {
+        console.log("🏗️ [BRANCH] Creando sucursal principal");
         mainBranch = await tx.branch.create({
           data: {
-            id: `branch_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            id: generateId('branch_'),
             businessId,
             name: 'Sucursal Principal',
             code: 'MAIN',
@@ -518,7 +363,7 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Buscar almacén principal de la sucursal
+      console.log("🏭 [WAREHOUSE] Buscando almacén principal");
       let mainWarehouse = await tx.warehouse.findFirst({
         where: {
           branchId: mainBranch.id,
@@ -527,7 +372,6 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      // Si no existe, buscar el primer almacén activo
       if (!mainWarehouse) {
         mainWarehouse = await tx.warehouse.findFirst({
           where: {
@@ -537,11 +381,11 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Si no existe ningún almacén, crear uno principal
       if (!mainWarehouse) {
+        console.log("🏗️ [WAREHOUSE] Creando almacén principal");
         mainWarehouse = await tx.warehouse.create({
           data: {
-            id: `warehouse_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            id: generateId('warehouse_'),
             branchId: mainBranch.id,
             name: 'Almacén Principal',
             code: 'MAIN',
@@ -551,74 +395,118 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Crear los items de venta y actualizar stock
+      // 10.3 Procesar items de venta y actualizar stock
+      console.log(`📦 [ITEMS] Procesando ${items.length} items de venta`);
       for (const item of items) {
+        console.log(`🔍 [PRODUCT] Verificando producto: ${item.productId}`);
+
+        // Verificar que el producto existe y está activo
+        const product = await tx.product.findFirst({
+          where: { id: item.productId, businessId },
+          select: { id: true, name: true, isActive: true }
+        })
+
+        if (!product || !product.isActive) {
+          throw new Error(`Producto no disponible o inactivo: ${item.productId}`)
+        }
+
+        // Crear item de venta
         await tx.saleItem.create({
           data: {
             saleId: newSale.id,
             productId: item.productId,
-            quantity: item.quantity,
-            price: item.unitPrice,
-            subtotal: item.subtotal
+            variantId: item.variantId || null,
+            businessId,
+            quantity: item.quantity as number,
+            price: item.unitPrice as number,
+            subtotal: item.subtotal as number
           }
         })
 
-        // Reducir stock del producto o variante
+        // Gestionar stock
         if (item.variantId) {
-          // Stock de variante
-          await tx.productVariant.update({
-            where: { id: item.variantId },
-            data: { stock: { decrement: item.quantity } }
+          console.log(`📊 [STOCK] Gestionando stock de variante: ${item.variantId}`);
+
+          // Verificar variante
+          const variant = await tx.productVariant.findFirst({
+            where: { id: item.variantId, product: { businessId } },
+            select: { id: true, isActive: true }
+          })
+
+          if (!variant || !variant.isActive) {
+            throw new Error(`Variante no disponible: ${item.variantId}`)
+          }
+
+          // Gestionar stock de variante (permitir negativo)
+          await tx.variantStock.upsert({
+            where: {
+              variantId_warehouseId: {
+                variantId: item.variantId,
+                warehouseId: mainWarehouse.id
+              }
+            },
+            create: {
+              variantId: item.variantId,
+              warehouseId: mainWarehouse.id,
+              businessId,
+              stock: -item.quantity,
+              available: -item.quantity
+            },
+            update: {
+              stock: { decrement: item.quantity },
+              available: { decrement: item.quantity }
+            }
           })
         } else {
-          // Stock de producto simple usando ProductStock
-          const productStock = await tx.productStock.findUnique({
+          console.log(`📊 [STOCK] Gestionando stock de producto simple: ${item.productId}`);
+
+          // Gestionar stock de producto simple (permitir negativo)
+          await tx.productStock.upsert({
             where: {
               productId_warehouseId: {
                 productId: item.productId,
                 warehouseId: mainWarehouse.id
               }
+            },
+            create: {
+              productId: item.productId,
+              warehouseId: mainWarehouse.id,
+              stock: -item.quantity,
+              available: -item.quantity,
+              reserved: 0
+            },
+            update: {
+              stock: { decrement: item.quantity },
+              available: { decrement: item.quantity }
             }
           })
-
-          if (productStock) {
-            // Actualizar stock existente
-            await tx.productStock.update({
-              where: {
-                productId_warehouseId: {
-                  productId: item.productId,
-                  warehouseId: mainWarehouse.id
-                }
-              },
-              data: {
-                stock: { decrement: item.quantity },
-                available: { decrement: item.quantity }
-              }
-            })
-          }
-          // Si no existe registro de stock, no hacer nada (el producto no tiene stock inicial)
         }
 
         // Registrar movimiento de stock
         await tx.stockMovement.create({
           data: {
-            id: `stock_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            id: generateId('stock_'),
+            businessId,
             productId: item.productId,
+            variantId: item.variantId || null,
             type: 'SALIDA',
             quantity: item.quantity,
             reason: `Venta #${ticketNumber}`,
-            userId: session.user.id
+            reference: newSale.id,
+            userId: session.user.id,
+            warehouseId: mainWarehouse.id
           }
         })
       }
 
-      // Crear pagos mixtos si aplica
+      // 10.4 Crear pagos mixtos si aplica
       if (hasMixedPayment && payments && payments.length > 0) {
+        console.log(`💳 [PAYMENTS] Creando ${payments.length} pagos mixtos`);
         for (const payment of payments) {
           await tx.salePayment.create({
             data: {
               saleId: newSale.id,
-              paymentMethod: payment.method,
+              paymentMethod: payment.method as PaymentMethod,
               amount: payment.amount,
               reference: payment.reference || null
             }
@@ -626,8 +514,9 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Registrar movimiento de caja (solo si no es cuenta corriente)
+      // 10.5 Registrar movimiento de caja (solo si no es cuenta corriente)
       if (paymentMethod !== "CUENTA_CORRIENTE") {
+        console.log("💰 [CASH] Registrando movimiento de caja");
         await tx.cashMovement.create({
           data: {
             userId: session.user.id,
@@ -641,9 +530,11 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // Actualizar cliente: última compra y deuda si es cuenta corriente
+      // 10.6 Actualizar cliente si aplica
       if (clientId) {
-        const updateData: any = {
+        console.log(`👤 [CLIENT] Actualizando cliente: ${clientId}`);
+
+        const updateData: Prisma.ClientUpdateInput = {
           lastPurchaseAt: new Date()
         }
 
@@ -656,10 +547,10 @@ export async function POST(request: NextRequest) {
           data: updateData
         })
 
-        // Si usa cuenta corriente, verificar si excede el límite y actualizar estado
+        // Gestionar cuenta corriente
         if (paymentMethod === "CUENTA_CORRIENTE") {
           const newDebt = Number(updatedClient.currentDebt) + total
-          
+
           if (newDebt > Number(updatedClient.creditLimit) && updatedClient.status === 'ACTIVE') {
             await tx.client.update({
               where: { id: clientId },
@@ -670,7 +561,7 @@ export async function POST(request: NextRequest) {
           // Registrar en log de actividad
           await tx.clientActivityLog.create({
             data: {
-              id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+              id: generateId('log_'),
               clientId,
               action: 'SALE',
               description: `Venta a crédito #${ticketNumber} por $${total}`,
@@ -688,49 +579,46 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      console.log("✅ [TRANSACTION] Transacción completada exitosamente");
       return newSale
     })
 
-    // Generar factura AFIP si se solicitó
-    let afipInvoice = null
-    if (body.generateAfipInvoice && body.documentType !== "ticket") {
+    // 11. Generar factura ARCA si se solicita (fuera de la transacción principal)
+    let arcaInvoice = null
+    if ((body.generateArcaInvoice || body.generateAfipInvoice) && body.documentType !== "ticket") {
       try {
-        // Obtener configuración AFIP y punto de venta
-        const afipConfig = await prisma.afipConfig.findUnique({
+        console.log("📄 [INVOICE] Generando factura ARCA");
+
+        const arcaConfig = await prisma.afipConfig.findUnique({
           where: { businessId }
         })
 
-        if (afipConfig && afipConfig.isActive) {
-          // Obtener el primer punto de venta activo
+        if (arcaConfig && arcaConfig.isActive) {
           const pointOfSale = await prisma.pointOfSale.findFirst({
             where: {
-              afipConfigId: afipConfig.id,
+              afipConfigId: arcaConfig.id,
               isActive: true
             }
           })
 
           if (pointOfSale) {
-            // Mapear tipo de comprobante
             const voucherTypeMap: { [key: string]: number } = {
-              'factura_a': 1,  // Factura A
-              'factura_b': 6,  // Factura B
-              'factura_c': 11  // Factura C
+              'factura_a': 1,
+              'factura_b': 6,
+              'factura_c': 11
             }
 
-            const voucherType = voucherTypeMap[body.documentType] || 6
-
-            // Mapear tipo de documento
             const docTypeMap: { [key: string]: number } = {
               'CUIT': 80,
               'CUIL': 86,
               'DNI': 96
             }
 
-            const documentType = body.clientDocType ? docTypeMap[body.clientDocType] : 99 // 99 = Sin identificar
+            const voucherType = voucherTypeMap[body.documentType] || 6
+            const documentType = body.clientDocType ? docTypeMap[body.clientDocType] : 99
             const documentNumber = body.clientDocNumber || '0'
 
-            // Llamar al endpoint de facturas AFIP
-            const invoiceResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/afip/invoices`, {
+            const invoiceResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/arca/invoices`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -747,31 +635,44 @@ export async function POST(request: NextRequest) {
 
             if (invoiceResponse.ok) {
               const invoiceData = await invoiceResponse.json()
-              afipInvoice = invoiceData.invoice
+              arcaInvoice = invoiceData.invoice
+              console.log("✅ [INVOICE] Factura ARCA generada exitosamente");
             } else {
-              console.error('Error al generar factura AFIP:', await invoiceResponse.text())
+              console.error('❌ [INVOICE] Error al generar factura ARCA:', await invoiceResponse.text())
             }
           }
         }
-      } catch (afipError) {
-        console.error('Error en generación de factura AFIP:', afipError)
+      } catch (arcaError) {
+        console.error('❌ [INVOICE] Error en generación de factura ARCA:', arcaError)
         // No fallar la venta si falla la factura
       }
     }
 
+    const processingTime = Date.now() - startTime;
+    console.log(`🎉 [SUCCESS] Venta completada exitosamente en ${processingTime}ms. ID: ${sale.id}`);
+
     return NextResponse.json({
       ...sale,
-      afipInvoice
+      arcaInvoice,
+      afipInvoice: arcaInvoice,
+      processingTime
     }, { status: 201 })
-    
-  } catch (error: any) {
-    logger.error("Error creating sale:", error)
-    
-    // Manejo de errores de Zod
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error(`❌ [ERROR] Error en procesamiento de venta (${processingTime}ms):`, error)
+    console.error("[ERROR] Stack:", error instanceof Error ? error.stack : "N/A")
+    console.error("[ERROR] Type:", typeof error)
+
+    // Manejo específico de errores de Prisma
+    const errorCode = typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: string }).code
+      : undefined
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { 
-          error: "Datos inválidos",
+        {
+          error: "Datos de venta inválidos",
           details: error.issues.map(e => ({
             field: e.path.join('.'),
             message: e.message
@@ -780,24 +681,53 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-    
-    // Errores de Prisma
-    if (error.code === 'P2002') {
+
+    if (errorCode === 'P2002') {
       return NextResponse.json(
-        { error: "Ya existe un registro con esos datos" },
+        { error: "Ya existe un registro con esos datos únicos" },
         { status: 409 }
       )
     }
 
-    if (error.code === 'P2025') {
+    if (errorCode === 'P2025') {
       return NextResponse.json(
-        { error: "Registro no encontrado" },
+        { error: "Uno o más registros relacionados no fueron encontrados" },
         { status: 404 }
       )
     }
 
+    // Errores de negocio específicos
+    const errorMessage = error instanceof Error ? error.message : String(error)
+
+    if (errorMessage.includes('Producto no disponible')) {
+      return NextResponse.json(
+        { error: "Producto no disponible", details: errorMessage },
+        { status: 400 }
+      )
+    }
+
+    if (errorMessage.includes('Variante no disponible')) {
+      return NextResponse.json(
+        { error: "Variante de producto no disponible", details: errorMessage },
+        { status: 400 }
+      )
+    }
+
+    if (errorMessage.includes('carrito está vacío')) {
+      return NextResponse.json(
+        { error: "Carrito vacío", details: errorMessage },
+        { status: 400 }
+      )
+    }
+
+    // Error genérico
     return NextResponse.json(
-      { error: "Error al crear la venta" },
+      {
+        error: "Error interno del servidor",
+        details: errorMessage,
+        code: errorCode || "UNKNOWN",
+        processingTime
+      },
       { status: 500 }
     )
   }

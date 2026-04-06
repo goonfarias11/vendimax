@@ -266,7 +266,7 @@ Ver documentación completa: [docs/TRIAL_MANAGEMENT.md](docs/TRIAL_MANAGEMENT.md
 - [ ] Modo offline (PWA)
 
 ### Integraciones
-- [ ] Pasarelas de pago (Stripe, MercadoPago)
+- [ ] Pasarela de pago (MercadoPago)
 - [ ] Facturación electrónica
 - [ ] WhatsApp Business API
 - [ ] Integración con impresoras térmicas

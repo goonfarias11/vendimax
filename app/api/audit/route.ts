@@ -6,19 +6,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { auditService } from '@/lib/audit'
+import { requireRole } from '@/lib/auth-middleware'
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
 
-    if (!session?.user) {
+    if (!session?.user?.businessId) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     // Solo admin y owner pueden ver auditoría
-    if (session.user.role !== 'ADMIN' && session.user.role !== 'OWNER') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 403 })
-    }
+    requireRole(session.user, ['ADMIN', 'OWNER'])
 
     const { searchParams } = new URL(request.url)
     const entity = searchParams.get('entity') || undefined
@@ -33,7 +32,7 @@ export async function GET(request: NextRequest) {
       ? parseInt(searchParams.get('limit')!)
       : 100
 
-    const logs = await auditService.getLogs(session.user.businessId!, {
+    const logs = await auditService.getLogs(session.user.businessId, {
       entity,
       userId,
       startDate,
@@ -42,10 +41,23 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(logs)
-  } catch (error: any) {
+  } catch (error) {
+    const status =
+      typeof error === 'object' && error !== null && 'status' in error
+        ? (error as { status?: number }).status
+        : undefined
+
+    if (status === 401 || status === 403) {
+      return NextResponse.json(
+        { error: status === 401 ? 'No autenticado' : 'No autorizado' },
+        { status }
+      )
+    }
+
+    const message = error instanceof Error ? error.message : 'Error al obtener logs'
     console.error('Error al obtener logs de auditoría:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener logs' },
+      { error: message },
       { status: 500 }
     )
   }

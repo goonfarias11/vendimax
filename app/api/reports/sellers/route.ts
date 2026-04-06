@@ -1,38 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
 
 // GET /api/reports/sellers - Reporte de desempeño por vendedor
 export async function GET(req: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const { searchParams } = new URL(req.url);
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
+    const { searchParams } = new URL(req.url)
+    const startDate = searchParams.get("startDate")
+    const endDate = searchParams.get("endDate")
 
-    let dateFilter = {};
+    let dateFilter: Prisma.SaleWhereInput = {}
     if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      end.setHours(23, 59, 59, 999)
       dateFilter = {
         createdAt: {
           gte: start,
           lte: end,
         },
-      };
+      }
     }
 
-    // Ventas por vendedor (solo completadas)
     const salesBySeller = await prisma.sale.groupBy({
       by: ["userId"],
       where: {
-        status: 'COMPLETADO',
+        businessId: tenant,
+        status: "COMPLETADO",
         ...dateFilter,
       },
       _sum: {
@@ -45,49 +48,48 @@ export async function GET(req: NextRequest) {
       _avg: {
         total: true,
       },
-    });
+    })
 
-    // Enriquecer con datos del vendedor
     const sellersWithDetails = await Promise.all(
       salesBySeller.map(async (item) => {
-        const user = await prisma.user.findUnique({
-          where: { id: item.userId },
+        const user = await prisma.user.findFirst({
+          where: { id: item.userId, businessId: tenant },
           select: {
             name: true,
             email: true,
             role: true,
           },
-        });
+        })
 
-        if (!user) return null;
+        if (!user) return null
 
-        // Obtener todas las ventas del vendedor para calcular más métricas
         const sales = await prisma.sale.findMany({
           where: {
+            businessId: tenant,
             userId: item.userId,
-            status: 'COMPLETADO',
+            status: "COMPLETADO",
             ...dateFilter,
           },
-          include: {
+          select: {
+            paymentMethod: true,
             saleItems: {
               select: {
                 quantity: true,
               },
             },
           },
-        });
+        })
 
         const totalItems = sales.reduce(
           (sum, sale) => sum + sale.saleItems.reduce((s, item) => s + item.quantity, 0),
-          0
-        );
+          0,
+        )
 
-        // Métodos de pago utilizados
-        const paymentMethods = sales.reduce((acc: any, sale) => {
-          const method = sale.paymentMethod;
-          acc[method] = (acc[method] || 0) + 1;
-          return acc;
-        }, {});
+        const paymentMethods = sales.reduce<Record<string, number>>((acc, sale) => {
+          const method = sale.paymentMethod
+          acc[method] = (acc[method] || 0) + 1
+          return acc
+        }, {})
 
         return {
           userId: item.userId,
@@ -100,33 +102,28 @@ export async function GET(req: NextRequest) {
           averageTicket: parseFloat((item._avg.total || 0).toString()),
           totalItems,
           paymentMethods,
-        };
-      })
-    );
+        }
+      }),
+    )
 
-    const validSellers = sellersWithDetails.filter((s) => s !== null);
+    const validSellers = sellersWithDetails.flatMap((seller) => (seller ? [seller] : []))
 
-    // Ordenar por revenue
-    validSellers.sort((a, b) => b.totalRevenue - a.totalRevenue);
+    validSellers.sort((a, b) => b.totalRevenue - a.totalRevenue)
 
-    // Calcular totales
     const totals = {
       totalSales: validSellers.reduce((sum, s) => sum + s.totalSales, 0),
       totalRevenue: validSellers.reduce((sum, s) => sum + s.totalRevenue, 0),
       totalDiscount: validSellers.reduce((sum, s) => sum + s.totalDiscount, 0),
       totalItems: validSellers.reduce((sum, s) => sum + s.totalItems, 0),
-    };
+    }
 
     return NextResponse.json({
       period: startDate && endDate ? { start: startDate, end: endDate } : null,
       totals,
       sellers: validSellers,
-    });
-  } catch (error: any) {
-    console.error("[GET /api/reports/sellers]", error);
-    return NextResponse.json(
-      { error: "Error al generar reporte", details: error.message },
-      { status: 500 }
-    );
+    })
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

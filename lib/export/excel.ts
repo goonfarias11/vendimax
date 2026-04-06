@@ -7,11 +7,49 @@ import ExcelJS from 'exceljs'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
+type DecimalLike = number | string | { toString(): string }
+
+type ExportBusiness = {
+  name: string
+}
+
+type ExportClient = {
+  name?: string | null
+} | null | undefined
+
+type ExportSale = {
+  id: string
+  createdAt: Date | string
+  client?: ExportClient
+  paymentMethod: string
+  subtotal: DecimalLike
+  discount: DecimalLike
+  total: DecimalLike
+  status: string
+  ticketNumber?: string | number | null
+  tax?: DecimalLike | null
+}
+
+type ExportCategory = {
+  name?: string | null
+} | null | undefined
+
+type ExportProduct = {
+  sku: string
+  name: string
+  category?: ExportCategory
+  price: DecimalLike
+  cost: DecimalLike
+  stock?: number | null
+  minStock: number
+  isActive: boolean
+}
+
 export class ExcelExportService {
   /**
    * Exporta ventas a Excel
    */
-  async exportSales(sales: any[], business: any): Promise<Buffer> {
+  async exportSales(sales: ExportSale[], business: ExportBusiness): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Ventas')
 
@@ -135,7 +173,7 @@ export class ExcelExportService {
   /**
    * Exporta productos a Excel
    */
-  async exportProducts(products: any[], business: any): Promise<Buffer> {
+  async exportProducts(products: ExportProduct[], business: ExportBusiness): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Productos')
 
@@ -201,7 +239,8 @@ export class ExcelExportService {
       row.getCell(5).numFmt = '"$"#,##0.00'
 
       // Alerta de stock bajo
-      if (product.stock <= product.minStock) {
+      const stock = product.stock ?? 0
+      if (stock <= product.minStock) {
         row.getCell(6).fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -240,7 +279,7 @@ export class ExcelExportService {
   /**
    * Exporta reporte de IVA
    */
-  async exportIVA(sales: any[], business: any, period: string): Promise<Buffer> {
+  async exportIVA(sales: ExportSale[], business: ExportBusiness, period: string): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('IVA')
 

@@ -7,16 +7,23 @@ import crypto from 'crypto'
 
 export interface WebhookPayload {
   event: string
-  data: any
+  data: unknown
   timestamp: string
   businessId: string
+}
+
+interface WebhookTarget {
+  id: string
+  url: string
+  secret: string
+  failCount: number
 }
 
 export class WebhookService {
   /**
    * Envía un webhook a todas las suscripciones activas
    */
-  async send(businessId: string, event: string, data: any): Promise<void> {
+  async send(businessId: string, event: string, data: unknown): Promise<void> {
     try {
       // Obtener webhooks activos para este evento
       const webhooks = await prisma.webhook.findMany({
@@ -55,7 +62,7 @@ export class WebhookService {
   /**
    * Envía el payload a un webhook específico
    */
-  private async sendToWebhook(webhook: any, payload: WebhookPayload): Promise<void> {
+  private async sendToWebhook(webhook: WebhookTarget, payload: WebhookPayload): Promise<void> {
     try {
       // Generar firma HMAC
       const signature = crypto

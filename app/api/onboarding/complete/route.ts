@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     const session = await auth();
 
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       // Create demo category
       const demoCategory = await tx.category.create({
         data: {
+          businessId,
           name: "Productos Demo",
           description: "Categoría de ejemplo para comenzar",
         },

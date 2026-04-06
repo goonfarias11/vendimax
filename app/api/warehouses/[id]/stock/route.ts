@@ -57,10 +57,11 @@ export async function GET(
     })
 
     return NextResponse.json(stocks)
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Error al obtener stock'
     console.error('Error al obtener stock del depósito:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener stock' },
+      { error: message },
       { status: 500 }
     )
   }

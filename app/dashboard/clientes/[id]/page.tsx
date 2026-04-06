@@ -611,7 +611,7 @@ export default function ClientDetailPage() {
                     Este cliente no tiene cuenta corriente habilitada.
                   </p>
                   <p className="text-sm text-gray-500">
-                    Actívala desde el tab "Resumen" para permitir compras a crédito.
+                    Actívala desde el tab &quot;Resumen&quot; para permitir compras a crédito.
                   </p>
                 </div>
               ) : (

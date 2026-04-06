@@ -1,13 +1,13 @@
 /**
- * API para generar facturas electrónicas con AFIP
- * POST /api/afip/invoices - Genera una factura para una venta
+ * API legacy compartida para generar facturas electrónicas con ARCA
+ * POST /api/afip/invoices (legacy) o /api/arca/invoices - Genera una factura para una venta
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { createAfipClient } from '@/lib/afip/client'
-import { VOUCHER_TYPES, DOCUMENT_TYPES, CONCEPT_TYPES, IVA_TYPES } from '@/lib/afip/types'
+import { createArcaClient } from '@/lib/arca/client'
+import { VOUCHER_TYPES, DOCUMENT_TYPES, CONCEPT_TYPES, IVA_TYPES } from '@/lib/arca/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,19 +61,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Obtener configuración de AFIP
-    const afipConfig = await prisma.afipConfig.findUnique({
+    // Obtener configuración de ARCA (modelo legacy afipConfig)
+    const arcaConfig = await prisma.afipConfig.findUnique({
       where: { businessId: sale.businessId },
     })
 
-    if (!afipConfig) {
+    if (!arcaConfig) {
       return NextResponse.json(
-        { error: 'Configuración de AFIP no encontrada. Configure AFIP en ajustes.' },
+        { error: 'Configuración de ARCA no encontrada. Configure ARCA en ajustes.' },
         { status: 400 }
       )
     }
 
-    if (!afipConfig.isActive) {
+    if (!arcaConfig.isActive) {
       return NextResponse.json(
         { error: 'La facturación electrónica está desactivada' },
         { status: 400 }
@@ -92,14 +92,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Crear cliente AFIP
-    const afipClient = createAfipClient({
-      cuit: afipConfig.cuit,
-      cert: afipConfig.cert || undefined,
-      key: afipConfig.key || undefined,
-      certPath: afipConfig.certPath || undefined,
-      keyPath: afipConfig.keyPath || undefined,
-      production: afipConfig.production,
+    // Crear cliente ARCA (cliente legacy Afip)
+    const arcaClient = createArcaClient({
+      cuit: arcaConfig.cuit,
+      cert: arcaConfig.cert || undefined,
+      key: arcaConfig.key || undefined,
+      certPath: arcaConfig.certPath || undefined,
+      keyPath: arcaConfig.keyPath || undefined,
+      production: arcaConfig.production,
     })
 
     // Calcular montos
@@ -130,8 +130,8 @@ export async function POST(request: NextRequest) {
     // Formato de fecha YYYYMMDD
     const invoiceDate = new Date().toISOString().split('T')[0].replace(/-/g, '')
 
-    // Generar factura en AFIP
-    const afipResponse = await afipClient.createInvoice({
+    // Generar factura en ARCA
+    const arcaResponse = await arcaClient.createInvoice({
       pointOfSale: pointOfSale.number,
       voucherType: finalVoucherType,
       concept: CONCEPT_TYPES.PRODUCTOS,
@@ -145,12 +145,12 @@ export async function POST(request: NextRequest) {
     })
 
     // Verificar resultado
-    if (afipResponse.result !== 'A') {
+    if (arcaResponse.result !== 'A') {
       return NextResponse.json(
         {
-          error: 'Factura rechazada por AFIP',
-          observations: afipResponse.observations,
-          errors: afipResponse.errors,
+          error: 'Factura rechazada por ARCA',
+          observations: arcaResponse.observations,
+          errors: arcaResponse.errors,
         },
         { status: 400 }
       )
@@ -162,9 +162,9 @@ export async function POST(request: NextRequest) {
         saleId,
         pointOfSaleId,
         voucherType: finalVoucherType,
-        voucherNumber: afipResponse.voucherNumber,
-        cae: afipResponse.cae,
-        caeDueDate: afipResponse.caeDueDate,
+        voucherNumber: arcaResponse.voucherNumber,
+        cae: arcaResponse.cae,
+        caeDueDate: arcaResponse.caeDueDate,
         invoiceDate,
         documentType: finalDocumentType,
         documentNumber: finalDocumentNumber,
@@ -172,9 +172,9 @@ export async function POST(request: NextRequest) {
         netAmount,
         taxAmount,
         exemptAmount,
-        result: afipResponse.result,
-        observations: afipResponse.observations ? JSON.parse(JSON.stringify(afipResponse.observations)) : undefined,
-        errors: afipResponse.errors ? JSON.parse(JSON.stringify(afipResponse.errors)) : undefined,
+        result: arcaResponse.result,
+        observations: arcaResponse.observations ? JSON.parse(JSON.stringify(arcaResponse.observations)) : undefined,
+        errors: arcaResponse.errors ? JSON.parse(JSON.stringify(arcaResponse.errors)) : undefined,
       },
     })
 
@@ -182,17 +182,18 @@ export async function POST(request: NextRequest) {
       success: true,
       invoice,
     })
-  } catch (error: any) {
-    console.error('Error al generar factura AFIP:', error)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error al generar factura'
+    console.error('Error al generar factura ARCA:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al generar factura' },
+      { error: message },
       { status: 500 }
     )
   }
 }
 
 /**
- * GET /api/afip/invoices - Obtiene las facturas generadas
+ * GET /api/afip/invoices (legacy) o /api/arca/invoices - Obtiene las facturas generadas
  */
 export async function GET(request: NextRequest) {
   try {
@@ -237,10 +238,11 @@ export async function GET(request: NextRequest) {
     })
 
     return NextResponse.json(invoices)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error al obtener facturas'
     console.error('Error al obtener facturas:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener facturas' },
+      { error: message },
       { status: 500 }
     )
   }

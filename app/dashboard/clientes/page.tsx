@@ -109,9 +109,28 @@ export default function ClientesPage() {
       if (debtFilter === 'hasDebt') params.append('hasDebt', 'true');
       if (debtFilter === 'exceedsLimit') params.append('exceedsLimit', 'true');
 
-      const response = await fetch(`/api/clients?${params}`);
+      const response = await fetch(`/api/clients?${params}`, { credentials: "include" });
+      if (response.status === 401) {
+        // sesión expirada
+        router.push(`/login?next=${encodeURIComponent("/dashboard/clientes")}`);
+        setClients([]);
+        setTotalPages(1);
+        setTotal(0);
+        setLoading(false);
+        return;
+      }
       if (!response.ok) {
-        throw new Error('Error al cargar clientes');
+        const err = await response.json().catch(() => ({}));
+        const msg = err.error || 'Error al cargar clientes';
+        // Caso sin negocio asignado
+        if (msg.toLowerCase().includes('sin negocio')) {
+          setClients([]);
+          setTotalPages(1);
+          setTotal(0);
+          setLoading(false);
+          return;
+        }
+        throw new Error(msg);
       }
       
       const data = await response.json();

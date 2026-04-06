@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+import { hasAdminPanelAccess } from '@/lib/admin/access';
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next();
   
   // Headers de seguridad
@@ -18,13 +20,33 @@ export function proxy(request: NextRequest) {
   response.headers.set(
     'Content-Security-Policy',
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.stripe.com https://vercel.live; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://vercel.live; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data: https: blob:; " +
     "font-src 'self' data:; " +
-    "connect-src 'self' https://api.stripe.com https://*.mercadopago.com https://vercel.live; " +
-    "frame-src https://js.stripe.com https://checkout.stripe.com https://vercel.live;"
+    "connect-src 'self' https://*.mercadopago.com https://vercel.live; " +
+    "frame-src https://vercel.live;"
   );
+
+  if (request.nextUrl.pathname.startsWith('/admin')) {
+    const token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET,
+    });
+
+    if (!token) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    const tokenAdminRole = typeof token.adminRole === 'string' ? token.adminRole : null;
+    const tokenRole = typeof token.role === 'string' ? token.role : null;
+
+    if (!hasAdminPanelAccess(tokenAdminRole, tokenRole)) {
+      return NextResponse.redirect(new URL('/403', request.url));
+    }
+  }
 
   return response;
 }

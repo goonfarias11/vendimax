@@ -16,8 +16,27 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+type SupportFormData = {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+};
+
 export default function SoportePage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [formData, setFormData] = useState<SupportFormData>({
+    name: "",
+    email: "",
+    subject: "",
+    message: "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitSuccess, setSubmitSuccess] = useState("");
+  const [mailtoFallback, setMailtoFallback] = useState("");
+
+  const supportEmail = "soportevendimax@gmail.com";
 
   const faqs = [
     {
@@ -95,6 +114,62 @@ export default function SoportePage() {
     )
   })).filter(c => c.preguntas.length > 0);
 
+  const handleFormChange = (
+    field: keyof SupportFormData,
+    value: string
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleSupportSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitError("");
+    setSubmitSuccess("");
+    setMailtoFallback("");
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/support", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
+      });
+
+      const data: { error?: string; message?: string } = await response.json();
+
+      if (!response.ok) {
+        const mailto = `mailto:${supportEmail}?subject=${encodeURIComponent(formData.subject)}&body=${encodeURIComponent(
+          `Nombre: ${formData.name}\nEmail: ${formData.email}\n\n${formData.message}`
+        )}`;
+        setMailtoFallback(mailto);
+        setSubmitError(data.error || "No se pudo enviar la consulta.");
+        return;
+      }
+
+      setSubmitSuccess(data.message || "Consulta enviada correctamente.");
+      setFormData({
+        name: "",
+        email: "",
+        subject: "",
+        message: "",
+      });
+      setMailtoFallback("");
+    } catch {
+      const mailto = `mailto:${supportEmail}?subject=${encodeURIComponent(formData.subject)}&body=${encodeURIComponent(
+        `Nombre: ${formData.name}\nEmail: ${formData.email}\n\n${formData.message}`
+      )}`;
+      setMailtoFallback(mailto);
+      setSubmitError("No se pudo conectar con el servidor. Intenta nuevamente.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-white">
       <Navbar />
@@ -142,9 +217,11 @@ export default function SoportePage() {
               </div>
               <h3 className="font-semibold text-gray-900 mb-2">Email</h3>
               <p className="text-sm text-gray-600 mb-4">
-                soporte@vendimax.com
+                soportevendimax@gmail.com
               </p>
-              <Button variant="outline" size="sm">Enviar Email</Button>
+              <Button variant="outline" size="sm" asChild>
+                <a href="#formulario-soporte">Enviar Consulta</a>
+              </Button>
             </div>
 
             <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 text-center">
@@ -153,7 +230,7 @@ export default function SoportePage() {
               </div>
               <h3 className="font-semibold text-gray-900 mb-2">Teléfono</h3>
               <p className="text-sm text-gray-600 mb-4">
-                +54 11 1234-5678
+                3543515007
               </p>
               <Button variant="outline" size="sm">Llamar Ahora</Button>
             </div>
@@ -210,28 +287,71 @@ export default function SoportePage() {
               </div>
             ) : (
               <div className="text-center py-12">
-                <p className="text-gray-500">No se encontraron resultados para "{searchQuery}"</p>
+                <p className="text-gray-500">No se encontraron resultados para &quot;{searchQuery}&quot;</p>
               </div>
             )}
           </div>
 
           {/* Formulario de contacto */}
-          <div className="mt-20 max-w-2xl mx-auto bg-gradient-to-br from-blue-50 to-white border border-blue-200 rounded-2xl p-8">
+          <div id="formulario-soporte" className="mt-20 max-w-2xl mx-auto bg-gradient-to-br from-blue-50 to-white border border-blue-200 rounded-2xl p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
               ¿No encontraste lo que buscabas?
             </h2>
-            <form className="space-y-4">
+            <form className="space-y-4" onSubmit={handleSupportSubmit}>
               <div className="grid md:grid-cols-2 gap-4">
-                <Input placeholder="Tu nombre" />
-                <Input type="email" placeholder="Tu email" />
+                <Input
+                  name="name"
+                  placeholder="Tu nombre"
+                  value={formData.name}
+                  onChange={(event) => handleFormChange("name", event.target.value)}
+                  required
+                  disabled={isSubmitting}
+                />
+                <Input
+                  name="email"
+                  type="email"
+                  placeholder="Tu email"
+                  value={formData.email}
+                  onChange={(event) => handleFormChange("email", event.target.value)}
+                  required
+                  disabled={isSubmitting}
+                />
               </div>
-              <Input placeholder="Asunto" />
-              <Textarea 
-                placeholder="Describe tu consulta..." 
-                rows={5}
+              <Input
+                name="subject"
+                placeholder="Asunto"
+                value={formData.subject}
+                onChange={(event) => handleFormChange("subject", event.target.value)}
+                required
+                disabled={isSubmitting}
               />
-              <Button className="w-full" size="lg">
-                Enviar Consulta
+              <Textarea
+                name="message"
+                placeholder="Describe tu consulta..."
+                rows={5}
+                value={formData.message}
+                onChange={(event) => handleFormChange("message", event.target.value)}
+                required
+                disabled={isSubmitting}
+              />
+              {submitError && (
+                <div className="space-y-3">
+                  <p className="text-sm text-red-600">{submitError}</p>
+                  {mailtoFallback && (
+                    <a
+                      href={mailtoFallback}
+                      className="inline-flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                    >
+                      Enviar desde mi correo
+                    </a>
+                  )}
+                </div>
+              )}
+              {submitSuccess && (
+                <p className="text-sm text-green-700">{submitSuccess}</p>
+              )}
+              <Button className="w-full" size="lg" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Enviando..." : "Enviar Consulta"}
               </Button>
             </form>
           </div>

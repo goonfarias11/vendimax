@@ -1,18 +1,14 @@
 // app/api/admin/precios/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { requireAdminApiSession, requireSuperAdminApiSession } from '@/lib/admin/api-auth'
 import { prisma } from '@/lib/prisma'
 
 // GET - Obtener todos los planes y addons
 export async function GET() {
   try {
-    const session = await auth()
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      )
+    const authResult = await requireAdminApiSession()
+    if (!authResult.authorized) {
+      return authResult.response
     }
 
     const plans = await prisma.subscriptionPlan.findMany({
@@ -48,13 +44,9 @@ export async function GET() {
 // POST - Aplicar ajuste de precios
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth()
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      )
+    const authResult = await requireSuperAdminApiSession()
+    if (!authResult.authorized) {
+      return authResult.response
     }
 
     const body = await request.json()
@@ -80,7 +72,7 @@ export async function POST(request: NextRequest) {
           newPrice: newMonthlyPrice,
           reason,
           ipcValue: ipcValue || null,
-          appliedBy: session.user.id,
+          appliedBy: authResult.session.user.id,
           notificationSent: false
         }
       })
@@ -123,7 +115,7 @@ export async function POST(request: NextRequest) {
           newPrice: newMonthlyPrice,
           reason,
           ipcValue: ipcValue || null,
-          appliedBy: session.user.id,
+          appliedBy: authResult.session.user.id,
           notificationSent: false
         }
       })
@@ -159,13 +151,9 @@ export async function POST(request: NextRequest) {
 // PUT - Activar/desactivar plan o addon
 export async function PUT(request: NextRequest) {
   try {
-    const session = await auth()
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      )
+    const authResult = await requireSuperAdminApiSession()
+    if (!authResult.authorized) {
+      return authResult.response
     }
 
     const body = await request.json()

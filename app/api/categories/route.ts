@@ -2,22 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
-
-const categorySchema = z.object({
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  description: z.string().optional().nullable(),
-});
+import { withBusinessScope } from '@/lib/security/multi-tenant';
+import { requireTenant } from '@/lib/security/tenant';
+import { categorySchema } from '@/lib/validation/category.schema';
 
 // GET - Listar categorías
 export async function GET() {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const tenantResult = await requireTenant(session);
+    if (!tenantResult.authorized) return tenantResult.response;
 
     const categories = await prisma.category.findMany({
-      where: { isActive: true },
+      where: { businessId: tenantResult.tenant, isActive: true },
       orderBy: { name: 'asc' },
       include: {
         _count: {
@@ -40,15 +37,17 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const tenantResult = await requireTenant(session);
+    if (!tenantResult.authorized) return tenantResult.response;
 
     const body = await request.json();
     const validatedData = categorySchema.parse(body);
 
     const category = await prisma.category.create({
-      data: validatedData,
+      data: {
+        ...validatedData,
+        businessId: tenantResult.tenant,
+      },
     });
 
     return NextResponse.json(category, { status: 201 });
@@ -73,9 +72,8 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const tenantResult = await requireTenant(session);
+    if (!tenantResult.authorized) return tenantResult.response;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -89,6 +87,18 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = categorySchema.parse(body);
+
+    const existingCategory = await prisma.category.findFirst({
+      where: { businessId: tenantResult.tenant, id },
+      select: { id: true },
+    });
+
+    if (!existingCategory) {
+      return NextResponse.json(
+        { error: 'Categoría no encontrada' },
+        { status: 404 }
+      );
+    }
 
     const category = await prisma.category.update({
       where: { id },
@@ -117,9 +127,8 @@ export async function PUT(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
+    const tenantResult = await requireTenant(session);
+    if (!tenantResult.authorized) return tenantResult.response;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -128,6 +137,18 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json(
         { error: 'ID de categoría requerido' },
         { status: 400 }
+      );
+    }
+
+    const existingCategory = await prisma.category.findFirst({
+      where: { businessId: tenantResult.tenant, id },
+      select: { id: true },
+    });
+
+    if (!existingCategory) {
+      return NextResponse.json(
+        { error: 'Categoría no encontrada' },
+        { status: 404 }
       );
     }
 

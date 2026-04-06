@@ -118,17 +118,18 @@ export async function GET(req: NextRequest) {
       alerts,
       stats,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Error desconocido";
     console.error("[GET /api/products/stock/alerts]", error);
     return NextResponse.json(
-      { error: "Error al obtener alertas", details: error.message },
+      { error: "Error al obtener alertas", details },
       { status: 500 }
     );
   }
 }
 
 // POST /api/products/stock/alerts/notify - Enviar notificaciones de stock bajo (futuro)
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     const session = await auth();
 
@@ -144,10 +145,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       message: "Notificaciones enviadas (funcionalidad en desarrollo)",
     });
-  } catch (error: any) {
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Error desconocido";
     console.error("[POST /api/products/stock/alerts/notify]", error);
     return NextResponse.json(
-      { error: "Error al enviar notificaciones", details: error.message },
+      { error: "Error al enviar notificaciones", details },
       { status: 500 }
     );
   }

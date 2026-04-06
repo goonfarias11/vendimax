@@ -126,10 +126,11 @@ export async function GET(
       },
       topProducts: topProductsWithNames,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Error desconocido";
     console.error("[GET /api/clients/[id]/history]", error);
     return NextResponse.json(
-      { error: "Error al obtener historial", details: error.message },
+      { error: "Error al obtener historial", details },
       { status: 500 }
     );
   }

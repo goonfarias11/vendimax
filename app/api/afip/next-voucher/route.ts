@@ -1,13 +1,12 @@
 /**
- * API para el próximo número de comprobante AFIP
- * GET /api/afip/next-voucher - Obtiene el próximo número de comprobante
+ * API legacy compartida para el próximo número de comprobante ARCA
+ * GET /api/afip/next-voucher (legacy) o /api/arca/next-voucher - Obtiene el próximo número de comprobante
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@/lib/auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { createAfipClient } from '@/lib/afip/client'
+import { createArcaClient } from '@/lib/arca/client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,14 +27,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Obtener configuración de AFIP
-    const afipConfig = await prisma.afipConfig.findUnique({
+    // Obtener configuración de ARCA (modelo legacy afipConfig)
+    const arcaConfig = await prisma.afipConfig.findUnique({
       where: { businessId: session.user.businessId! },
     })
 
-    if (!afipConfig) {
+    if (!arcaConfig) {
       return NextResponse.json(
-        { error: 'Configuración de AFIP no encontrada' },
+        { error: 'Configuración de ARCA no encontrada' },
         { status: 400 }
       )
     }
@@ -52,18 +51,18 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Crear cliente AFIP
-    const afipClient = createAfipClient({
-      cuit: afipConfig.cuit,
-      cert: afipConfig.cert || undefined,
-      key: afipConfig.key || undefined,
-      certPath: afipConfig.certPath || undefined,
-      keyPath: afipConfig.keyPath || undefined,
-      production: afipConfig.production,
+    // Crear cliente ARCA (cliente legacy Afip)
+    const arcaClient = createArcaClient({
+      cuit: arcaConfig.cuit,
+      cert: arcaConfig.cert || undefined,
+      key: arcaConfig.key || undefined,
+      certPath: arcaConfig.certPath || undefined,
+      keyPath: arcaConfig.keyPath || undefined,
+      production: arcaConfig.production,
     })
 
     // Obtener último comprobante
-    const lastVoucher = await afipClient.getLastVoucher(
+    const lastVoucher = await arcaClient.getLastVoucher(
       pointOfSale.number,
       voucherType
     )
@@ -76,10 +75,11 @@ export async function GET(request: NextRequest) {
       pointOfSale: pointOfSale.number,
       voucherType,
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error al obtener próximo comprobante'
     console.error('Error al obtener próximo comprobante:', error)
     return NextResponse.json(
-      { error: error.message || 'Error al obtener próximo comprobante' },
+      { error: message },
       { status: 500 }
     )
   }

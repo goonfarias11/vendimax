@@ -1,17 +1,13 @@
 // app/api/admin/pagos/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { requireAdminApiSession } from '@/lib/admin/api-auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth()
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'No autorizado' },
-        { status: 401 }
-      )
+    const authResult = await requireAdminApiSession()
+    if (!authResult.authorized) {
+      return authResult.response
     }
 
     const { searchParams } = new URL(request.url)
@@ -21,7 +17,7 @@ export async function GET(request: NextRequest) {
     const payments = await prisma.payment.findMany({
       where: {
         method: 'transfer',
-        status: status as any
+        status
       },
       include: {
         subscription: {

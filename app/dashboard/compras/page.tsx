@@ -65,6 +65,9 @@ export default function ComprasPage() {
 
   useEffect(() => {
     loadPurchases();
+  }, [searchTerm]);
+
+  useEffect(() => {
     loadSuppliers();
     loadProducts();
   }, []);
@@ -72,7 +75,13 @@ export default function ComprasPage() {
   const loadPurchases = async () => {
     try {
       setLoading(true);
-      const res = await fetch("/api/purchases");
+      const params = new URLSearchParams();
+      if (searchTerm.trim()) {
+        params.set("search", searchTerm.trim());
+      }
+
+      const url = params.toString() ? `/api/purchases?${params.toString()}` : "/api/purchases";
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Error al cargar compras");
       const data = await res.json();
       setPurchases(data);

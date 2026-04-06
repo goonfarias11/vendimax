@@ -206,7 +206,7 @@ async function createPDFBuffer(data: InvoiceData): Promise<Buffer> {
       let yPosition = tableTop + 50
       doc.font('Helvetica')
 
-      data.items.forEach((item, index) => {
+      data.items.forEach((item) => {
         if (yPosition > 700) {
           doc.addPage()
           yPosition = 50
@@ -249,7 +249,7 @@ async function createPDFBuffer(data: InvoiceData): Promise<Buffer> {
         .text('TOTAL:', 390, yPosition)
         .text(`$${data.amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 490, yPosition)
 
-      // QR Code (placeholder AFIP)
+      // QR Code (placeholder ARCA)
       yPosition += 40
       try {
         const qrData = `https://vendimax.com/factura/${data.invoiceNumber}`
@@ -258,13 +258,13 @@ async function createPDFBuffer(data: InvoiceData): Promise<Buffer> {
         doc
           .fontSize(8)
           .font('Helvetica')
-          .text('Código QR AFIP', 50, yPosition)
+          .text('Código QR ARCA', 50, yPosition)
         
         doc.image(qrImage, 50, yPosition + 15, { width: 100 })
 
         doc
           .fontSize(7)
-          .text('(Placeholder - Integrar con AFIP en producción)', 50, yPosition + 120, { width: 150 })
+          .text('(Placeholder - Integrar con ARCA en producción)', 50, yPosition + 120, { width: 150 })
 
       } catch (qrError) {
         console.error('Error generando QR:', qrError)

@@ -2,47 +2,35 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { requirePermission } from '@/lib/auth-middleware'
+import { requireTenant } from '@/lib/security/tenant'
 
 export async function GET(request: NextRequest) {
   try {
     const permissionCheck = await requirePermission(request, 'cash:view')
-    if (!permissionCheck.authorized) {
-      return permissionCheck.response
-    }
+    if (!permissionCheck.authorized) return permissionCheck.response
 
     const session = await auth()
-    if (!session?.user?.id || !session.user.businessId) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    // Buscar caja abierta del usuario
     const currentCash = await prisma.cashRegister.findFirst({
       where: {
-        userId: session.user.id,
-        businessId: session.user.businessId,
+        businessId: tenant,
+        userId: session!.user.id,
         status: 'OPEN'
       },
       include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
+        user: { select: { id: true, name: true, email: true } },
         sales: {
-          where: {
-            status: 'COMPLETADO'
-          },
+          where: { status: 'COMPLETADO', businessId: tenant },
           select: {
             id: true,
             total: true,
             paymentMethod: true,
             createdAt: true
           },
-          orderBy: {
-            createdAt: 'desc'
-          }
+          orderBy: { createdAt: 'desc' }
         }
       }
     })
@@ -51,25 +39,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ currentCash: null })
     }
 
-    // Calcular estadísticas en tiempo real (ventas ya filtradas por COMPLETADO en la query)
     const activeSales = currentCash.sales
     const salesByPaymentMethod = activeSales.reduce((acc, sale) => {
       const method = sale.paymentMethod
-      if (!acc[method]) {
-        acc[method] = { count: 0, total: 0 }
-      }
+      if (!acc[method]) acc[method] = { count: 0, total: 0 }
       acc[method].count++
       acc[method].total += Number(sale.total)
       return acc
-    }, {} as Record<string, { count: number, total: number }>)
+    }, {} as Record<string, { count: number; total: number }>)
 
     const totalCash = salesByPaymentMethod['EFECTIVO']?.total || 0
     const totalCard = (salesByPaymentMethod['TARJETA_DEBITO']?.total || 0) + (salesByPaymentMethod['TARJETA_CREDITO']?.total || 0)
     const totalTransfer = (salesByPaymentMethod['TRANSFERENCIA']?.total || 0) + (salesByPaymentMethod['QR']?.total || 0)
     const totalSales = activeSales.reduce((acc, s) => acc + Number(s.total), 0)
     const expectedAmount = Number(currentCash.openingAmount) + totalCash
-
-    const hoursOpen = Math.round((new Date().getTime() - currentCash.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
+    const hoursOpen = Math.round((Date.now() - currentCash.openedAt.getTime()) / (1000 * 60 * 60) * 10) / 10
 
     return NextResponse.json({
       currentCash: {
@@ -93,9 +77,9 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error al obtener caja actual:', error)
+    console.error("[API ERROR]", error)
     return NextResponse.json(
-      { error: 'Error al obtener estado de caja' },
+      { error: 'Internal server error' },
       { status: 500 }
     )
   }

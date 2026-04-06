@@ -71,10 +71,12 @@ const sanitizeSalePayload = (data: any) => {
       unitPrice: safeNumber(item.unitPrice),
       subtotal: safeNumber(item.quantity) * safeNumber(item.unitPrice),
     })),
-    payments: data.payments ? data.payments.map((p: any) => ({
-      ...p,
-      amount: safeNumber(p.amount),
-    })) : null,
+    payments: Array.isArray(data.payments)
+      ? data.payments.map((p: any) => ({
+          ...p,
+          amount: safeNumber(p.amount),
+        }))
+      : [],
   };
 };
 
@@ -221,6 +223,14 @@ export function POSInterface() {
 
     try {
       // Preparar datos sin sanitizar
+      if (cart.length === 0) {
+        throw new Error("Agrega al menos un producto para finalizar");
+      }
+
+      if (total <= 0) {
+        throw new Error("El total debe ser mayor a cero");
+      }
+
       const rawSaleData = {
         clientId: selectedClient?.id || null,
         items: cart.map((item) => ({
@@ -236,11 +246,13 @@ export function POSInterface() {
         total: total,
         paymentMethod: payments.length > 1 ? "MIXTO" : payments[0].method,
         hasMixedPayment: payments.length > 1,
-        payments: payments.length > 1 ? payments.map(p => ({
-          method: p.method,
-          amount: p.amount,
-          reference: p.reference || null
-        })) : null,
+        payments: payments.length > 1
+          ? payments.map((p) => ({
+              method: p.method,
+              amount: p.amount,
+              reference: p.reference || null,
+            }))
+          : [{ method: payments[0].method, amount: total, reference: payments[0].reference || null }],
       };
 
       // Sanitizar payload antes de enviar
@@ -252,6 +264,7 @@ export function POSInterface() {
       const res = await fetch("/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(saleData),
       });
 
@@ -262,6 +275,12 @@ export function POSInterface() {
         
         // Mostrar detalles del error si están disponibles
         let errorMessage = error.error || "Error al procesar la venta";
+        if (error.details) {
+          errorMessage += `\n\nDetalles del servidor: ${error.details}`;
+        }
+        if (error.code) {
+          errorMessage += `\n\nCódigo: ${error.code}`;
+        }
         if (error.details && Array.isArray(error.details)) {
           errorMessage += "\n\nDetalles:\n" + error.details.map((d: any) => 
             `- ${d.field}: ${d.message}`

@@ -6,15 +6,12 @@ import { DataTable } from "@/components/dashboard/data-table";
 import { DollarSign, ShoppingCart, TrendingUp, Package, AlertTriangle, Eye } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { useSession } from "next-auth/react";
 
 // Helpers para evitar NaN en cálculos
 const safeNumber = (value: any): number => {
   const num = Number(value);
   return Number.isFinite(num) ? num : 0;
-};
-
-const safeArray = <T,>(value: any): T[] => {
-  return Array.isArray(value) ? value : [];
 };
 
 type DashboardStats = {
@@ -33,6 +30,7 @@ type DashboardStats = {
 };
 
 export function DashboardContent() {
+  const { data: session } = useSession();
   const [stats, setStats] = useState<DashboardStats>({
     ventasHoy: 0,
     ticketsHoy: 0,
@@ -51,142 +49,37 @@ export function DashboardContent() {
   const fetchDashboardStats = async () => {
     try {
       setLoading(true);
-      
-      // Fetch en paralelo de todos los datos
-      const [salesRes, productsRes] = await Promise.all([
-        fetch("/api/sales"),
-        fetch("/api/products"),
-      ]);
-
-      if (!salesRes.ok) {
-        const errorData = await salesRes.json().catch(() => ({}));
-        throw new Error(errorData.error || "Error al cargar ventas");
+      const res = await fetch("/api/dashboard/metrics");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "No se pudieron cargar las métricas");
       }
 
-      if (!productsRes.ok) {
-        const errorData = await productsRes.json().catch(() => ({}));
-        throw new Error(errorData.error || "Error al cargar productos");
-      }
-
-      const salesData = await salesRes.json();
-      const products = await productsRes.json();
-
-      // Extraer array de ventas (soporta formato antiguo y nuevo)
-      const sales = Array.isArray(salesData) ? salesData : salesData.sales || [];
-      
-      // Validar que sean arrays
-      if (!Array.isArray(sales) || !Array.isArray(products)) {
-        throw new Error("Error: Respuesta inválida de API");
-      }
-
-      // Calcular fecha de hoy y del mes
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      // Asegurar que sales sea array
-      const salesSafe = Array.isArray(sales) ? sales : [];
-
-      // Filtrar ventas de hoy
-      const ventasHoy = salesSafe.filter((s: any) => {
-        const saleDate = new Date(s.createdAt);
-        saleDate.setHours(0, 0, 0, 0);
-        return saleDate.getTime() === today.getTime();
-      });
-
-      // Filtrar ventas del mes
-      const ventasMes = salesSafe.filter((s: any) => {
-        const saleDate = new Date(s.createdAt);
-        return saleDate >= startOfMonth;
-      });
-
-      // Filtrar solo ventas completadas (excluir canceladas)
-      const ventasHoyCompletadas = ventasHoy.filter((s: any) => s.status === 'COMPLETADO');
-      const ventasMesCompletadas = ventasMes.filter((s: any) => s.status === 'COMPLETADO');
-
-      // Debug temporal - verificar datos
-      console.log('=== DEBUG TOTALES DE VENTAS ===');
-      console.log('Total de ventas:', salesSafe.length);
-      console.log('Ventas de hoy (completadas):', ventasHoyCompletadas.length);
-      console.log('Ventas del mes (completadas):', ventasMesCompletadas.length);
-      console.table(
-        ventasHoyCompletadas.slice(0, 5).map((s: any) => ({
-          id: s.id?.slice(0, 8),
-          total: s.total,
-          parsed: safeNumber(s.total),
-          type: typeof s.total
-        }))
-      );
-
-      // Calcular totales con safeNumber (solo ventas completadas)
-      const totalHoy = ventasHoyCompletadas.reduce(
-        (sum: number, s: any) => sum + safeNumber(s.total),
-        0
-      );
-      const totalMes = ventasMesCompletadas.reduce(
-        (sum: number, s: any) => sum + safeNumber(s.total),
-        0
-      );
-
-      console.log('Total hoy calculado:', totalHoy);
-      console.log('Total mes calculado:', totalMes);
-      console.log('================================');
-
-      // Productos con bajo stock
-      const productosBajoStock = products.filter(
-        (p: any) => p.isActive && Number(p.stock) <= Number(p.minStock)
-      );
-
-      // Últimas 5 ventas
-      const ultimasVentas = sales.slice(0, 5).map((s: any) => ({
-        id: s.number || s.id.slice(0, 8),
-        cliente: s.client?.name || "Sin cliente",
-        fecha: new Date(s.createdAt).toLocaleString("es-AR", {
-          day: "2-digit",
-          month: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        items: s.saleItems?.length || 0,
-        total: Number(s.total),
-        metodoPago: s.paymentMethod,
-      }));
-
-      // Productos más vendidos (contar items en ventas)
-      const productSalesCount: { [key: string]: { name: string; count: number; total: number } } = {};
-      
-      safeArray(sales).forEach((sale: any) => {
-        safeArray(sale.saleItems).forEach((item: any) => {
-          const productId = item.productId || 'unknown';
-          const productName = item.product?.name || "Producto";
-          const quantity = safeNumber(item.quantity);
-          const subtotal = safeNumber(item.subtotal);
-
-          if (!productSalesCount[productId]) {
-            productSalesCount[productId] = { name: productName, count: 0, total: 0 };
-          }
-          productSalesCount[productId].count += quantity;
-          productSalesCount[productId].total += subtotal;
-        });
-      });
-
-      const productosPopulares = Object.entries(productSalesCount)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 5)
-        .map(([id, data]) => ({
-          producto: data.name,
-          vendidos: data.count,
-          total: data.total,
-        }));
+      const metrics = await res.json();
 
       setStats({
-        ventasHoy: totalHoy,
-        ticketsHoy: ventasHoy.length,
-        totalMes,
-        productosBajoStock: productosBajoStock.length,
-        ultimasVentas,
-        productosPopulares,
+        ventasHoy: safeNumber(metrics.kpis?.salesToday),
+        ticketsHoy: metrics.kpis?.ticketsToday || 0,
+        totalMes: safeNumber(metrics.kpis?.salesMonth),
+        productosBajoStock: metrics.kpis?.lowStock || 0,
+        ultimasVentas: (metrics.recentSales || []).map((s: any) => ({
+          id: s.ticketNumber || s.id?.slice(0, 8) || "N/A",
+          cliente: s.client || "Sin cliente",
+          fecha: new Date(s.createdAt).toLocaleString("es-AR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          items: s.itemsCount || 0,
+          total: safeNumber(s.total),
+          metodoPago: s.paymentMethod,
+        })),
+        productosPopulares: (metrics.topProducts || []).map((p: any) => ({
+          producto: p.name,
+          vendidos: safeNumber(p.quantity),
+          total: safeNumber(p.total),
+        })),
       });
     } catch (error) {
       setError("Error al cargar estadísticas");
@@ -229,8 +122,18 @@ export function DashboardContent() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600">Resumen de tu negocio en tiempo real</p>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-gray-600">Resumen de tu negocio en tiempo real</p>
+          </div>
+          {session?.user?.email?.toLowerCase() ===
+            (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").trim().toLowerCase() && (
+            <Button asChild variant="outline">
+              <Link href="/admin">Panel administrador</Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* KPIs */}

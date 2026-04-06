@@ -48,7 +48,7 @@ async function main() {
       maxSales: 1000,
       features: JSON.stringify([
         'Todo lo de Emprendedor',
-        'Facturación electrónica (AFIP)',
+        'Facturación electrónica (ARCA)',
         'Múltiples sucursales',
         'Reportes avanzados',
         'Análisis de rentabilidad',

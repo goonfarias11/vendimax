@@ -6,7 +6,7 @@ import { sendSetupFeeConfirmedEmail, sendMonthlyPaymentApprovedEmail } from '@/l
 import crypto from 'crypto'
 
 // Verificar firma de MercadoPago para seguridad
-function verifyMercadoPagoSignature(request: NextRequest, body: any): boolean {
+function verifyMercadoPagoSignature(request: NextRequest, body: unknown): boolean {
   try {
     const xSignature = request.headers.get('x-signature')
     const xRequestId = request.headers.get('x-request-id')
@@ -33,7 +33,14 @@ function verifyMercadoPagoSignature(request: NextRequest, body: any): boolean {
     }
 
     // Construir string manifest según documentación de MercadoPago
-    const dataId = body.data?.id || ''
+    const dataId =
+      typeof body === 'object' &&
+      body !== null &&
+      'data' in body &&
+      typeof (body as { data?: unknown }).data === 'object' &&
+      (body as { data?: { id?: unknown } }).data !== null
+        ? String((body as { data?: { id?: unknown } }).data?.id || '')
+        : ''
     const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`
     
     // Obtener secret key de MercadoPago

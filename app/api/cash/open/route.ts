@@ -2,74 +2,62 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { requirePermission } from '@/lib/auth-middleware'
+import { requireTenant } from '@/lib/security/tenant'
+import { cashOpenSchema } from '@/lib/validation/cash/cashOpen.schema'
 import { z } from 'zod'
-
-const openCashSchema = z.object({
-  openingAmount: z.number().min(0, 'El monto inicial debe ser positivo'),
-  notes: z.string().optional()
-})
 
 export async function POST(request: NextRequest) {
   try {
-    // Verificar permiso
     const permissionCheck = await requirePermission(request, 'cash:register_movement')
-    if (!permissionCheck.authorized) {
-      return permissionCheck.response
-    }
+    if (!permissionCheck.authorized) return permissionCheck.response
 
     const session = await auth()
-    if (!session?.user?.id || !session.user.businessId) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
     const body = await request.json()
-    const validatedData = openCashSchema.parse(body)
-
-    // Verificar que el usuario no tenga una caja abierta
-    const existingOpenCash = await prisma.cashRegister.findFirst({
-      where: {
-        userId: session.user.id,
-        businessId: session.user.businessId,
-        status: 'OPEN'
-      }
-    })
-
-    if (existingOpenCash) {
+    const validated = cashOpenSchema.safeParse(body)
+    if (!validated.success) {
       return NextResponse.json(
-        { error: 'Ya tienes una caja abierta. Debes cerrarla antes de abrir una nueva.' },
+        { error: 'Validation error', details: validated.error.issues },
         { status: 400 }
       )
     }
 
-    // Crear nueva caja
+    const existingOpen = await prisma.cashRegister.findFirst({
+      where: { businessId: tenant, status: 'OPEN' }
+    })
+    if (existingOpen) {
+      return NextResponse.json(
+        { error: 'Cash register already open' },
+        { status: 409 }
+      )
+    }
+
     const cashRegister = await prisma.$transaction(async (tx) => {
       const newCash = await tx.cashRegister.create({
         data: {
-          businessId: session.user.businessId!,
-          userId: session.user.id,
-          openingAmount: validatedData.openingAmount,
-          notes: validatedData.notes,
+          businessId: tenant,
+          userId: session!.user.id,
+          openingAmount: validated.data.openingAmount,
+          notes: validated.data.notes,
           status: 'OPEN'
         },
         include: {
           user: {
-            select: {
-              id: true,
-              name: true,
-              email: true
-            }
+            select: { id: true, name: true, email: true }
           }
         }
       })
 
-      // Registrar movimiento de apertura
       await tx.cashMovement.create({
         data: {
           type: 'APERTURA',
-          amount: validatedData.openingAmount,
-          description: `Apertura de caja - ${validatedData.notes || 'Sin observaciones'}`,
-          userId: session.user.id,
-          businessId: session.user.businessId!,
+          amount: validated.data.openingAmount,
+          description: `Apertura de caja - ${validated.data.notes || 'Sin observaciones'}`,
+          userId: session!.user.id,
+          businessId: tenant,
           cashRegisterId: newCash.id
         }
       })
@@ -81,15 +69,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Datos inválidos', details: error.issues },
+        { error: 'Validation error', details: error.issues },
         { status: 400 }
       )
     }
-
-    console.error('Error al abrir caja:', error)
+    console.error('[API ERROR]', error)
     return NextResponse.json(
-      { error: 'Error al abrir caja' },
-      { status: 500 }
-    )
+        { error: 'Internal server error' },
+        { status: 500 }
+      )
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { createFreeTrial } from "@/lib/freeTrial";
+import { signIn } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
           email,
           passwordHash,
           role: "OWNER", // El primer usuario es dueño
+          adminRole: "super_admin",
         },
       });
 
@@ -81,10 +83,11 @@ export async function POST(req: NextRequest) {
       businessId: result.business.id,
       message: "Cuenta creada exitosamente. ¡Bienvenido a VendiMax!",
     });
-  } catch (error: any) {
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "Error desconocido";
     console.error("[POST /api/auth/register]", error);
     return NextResponse.json(
-      { error: "Error al crear la cuenta", details: error.message },
+      { error: "Error al crear la cuenta", details },
       { status: 500 }
     );
   }

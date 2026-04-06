@@ -1,941 +1,1192 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Search, Plus, Trash2, ShoppingCart, X } from "lucide-react"
-import { useSession } from "next-auth/react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Search,
+  ScanLine,
+  ShoppingCart,
+  Trash2,
+  Minus,
+  Plus,
+  UserRound,
+  CheckCircle2,
+  Printer,
+  Send,
+  Keyboard,
+  Banknote,
+  CreditCard,
+  Landmark,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
 
-interface Product {
-  id: string
-  name: string
-  price: number
-  stock: number
-  category: string
-  barcode?: string
-}
+type ApiProduct = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  barcode?: string | null;
+  price?: number;
+  salePrice?: number;
+  stock?: number;
+  image?: string | null;
+  taxRate?: number;
+};
 
-interface Client {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  creditLimit?: number
-  currentDebt?: number
-  hasCreditAccount?: boolean
-  status?: 'ACTIVE' | 'DELINQUENT' | 'INACTIVE' | 'BLOCKED'
-}
+type Product = {
+  id: string;
+  name: string;
+  sku: string;
+  barcode: string;
+  price: number;
+  stock: number;
+  image: string;
+  taxRate: number;
+};
 
-interface CartItem extends Product {
-  quantity: number
-  subtotal: number
-}
+type Client = {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  totalPurchased?: number;
+  purchaseCount?: number;
+  lastPurchase?: string | null;
+};
 
-interface SaleTicketDetail {
-  id: string
-  ticketNumber: string
-  createdAt: string
-  client: { name: string } | null
-  user: { name: string }
-  subtotal: number
-  discount: number
-  total: number
-  paymentMethod: string
-  saleItems: Array<{
-    id: string
-    quantity: number
-    price: number
-    subtotal: number
-    product: {
-      name: string
-    }
-  }>
-}
+type CartItem = {
+  id: string;
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  stock: number;
+  image: string;
+  taxRate: number;
+  subtotal: number;
+};
 
-const paymentMethodLabels: Record<string, string> = {
-  EFECTIVO: "Efectivo",
-  TARJETA_DEBITO: "Tarjeta Debito",
-  TARJETA_CREDITO: "Tarjeta Credito",
-  TRANSFERENCIA: "Transferencia",
-  QR: "QR",
-  CUENTA_CORRIENTE: "Cuenta Corriente",
-  OTRO: "Otro",
-}
+type PaymentMode = "EFECTIVO" | "TARJETA" | "TRANSFERENCIA" | "MIXTO";
 
-const escapeHtml = (value: string): string => {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;")
-}
+type MixedPayments = {
+  efectivo: number;
+  tarjeta: number;
+  transferencia: number;
+};
 
-const formatMoney = (value: number): string => {
-  return Number(value || 0).toFixed(2)
-}
+const CONSUMIDOR_FINAL_LABEL = "Consumidor Final";
+
+const safeNumber = (value: unknown): number => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    maximumFractionDigits: 2,
+  }).format(value);
+
+const playScanSound = () => {
+  try {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.type = "triangle";
+    oscillator.frequency.value = 920;
+    gain.gain.value = 0.05;
+
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.08);
+
+    setTimeout(() => {
+      context.close().catch(() => undefined);
+    }, 150);
+  } catch {
+    // Ignorar errores de audio (navegador o permisos)
+  }
+};
+
+const mapProduct = (raw: ApiProduct): Product => ({
+  id: raw.id,
+  name: raw.name,
+  sku: raw.sku || "-",
+  barcode: raw.barcode || "",
+  price: safeNumber(raw.salePrice ?? raw.price),
+  stock: safeNumber(raw.stock),
+  image: raw.image || "",
+  taxRate: safeNumber(raw.taxRate),
+});
 
 export default function NuevaVentaPage() {
-  const router = useRouter()
-  const { data: session } = useSession()
-  const [products, setProducts] = useState<Product[]>([])
-  const [clients, setClients] = useState<Client[]>([])
-  const [searchProduct, setSearchProduct] = useState("")
-  const [searchClient, setSearchClient] = useState("")
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null)
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [paymentMethod, setPaymentMethod] = useState<"EFECTIVO" | "TARJETA_DEBITO" | "TARJETA_CREDITO" | "TRANSFERENCIA" | "QR" | "CUENTA_CORRIENTE" | "OTRO">("EFECTIVO")
-  const [documentType, setDocumentType] = useState<"ticket" | "factura_a" | "factura_b" | "factura_c">("ticket")
-  const [clientDocType, setClientDocType] = useState<"CUIT" | "CUIL" | "DNI" | "">("")
-  const [clientDocNumber, setClientDocNumber] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const [showProductResults, setShowProductResults] = useState(false)
-  const [showClientResults, setShowClientResults] = useState(false)
-  const [showNewClientForm, setShowNewClientForm] = useState(false)
-  const [printTicketAfterSale, setPrintTicketAfterSale] = useState(true)
-  const [newClientData, setNewClientData] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    address: ""
-  })
+  const router = useRouter();
 
-  const printSaleTicket = (sale: SaleTicketDetail) => {
-    const printWindow = window.open("", "_blank", "width=320,height=700")
-    if (!printWindow) {
-      setError("No se pudo abrir la ventana de impresion. Habilita ventanas emergentes.")
-      return
+  const productInputRef = useRef<HTMLInputElement>(null);
+  const clientInputRef = useRef<HTMLInputElement>(null);
+
+  const [productQuery, setProductQuery] = useState("");
+  const [productResults, setProductResults] = useState<Product[]>([]);
+  const [showProductResults, setShowProductResults] = useState(false);
+
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientResults, setClientResults] = useState<Client[]>([]);
+  const [showClientResults, setShowClientResults] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [recentlyAddedIds, setRecentlyAddedIds] = useState<string[]>([]);
+
+  const [discount, setDiscount] = useState(0);
+
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("EFECTIVO");
+  const [cashReceived, setCashReceived] = useState(0);
+  const [mixedPayments, setMixedPayments] = useState<MixedPayments>({
+    efectivo: 0,
+    tarjeta: 0,
+    transferencia: 0,
+  });
+
+  const [printAfterSale, setPrintAfterSale] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [confirmSaleOpen, setConfirmSaleOpen] = useState(false);
+  const [lastSale, setLastSale] = useState<{ id: string; ticketNumber?: number } | null>(null);
+
+  const itemsCount = useMemo(
+    () => cart.reduce((sum, item) => sum + item.quantity, 0),
+    [cart],
+  );
+
+  const subtotal = useMemo(
+    () => cart.reduce((sum, item) => sum + item.subtotal, 0),
+    [cart],
+  );
+
+  const discountAmount = useMemo(
+    () => Math.max(0, Math.min(safeNumber(discount), subtotal)),
+    [discount, subtotal],
+  );
+
+  const estimatedTax = useMemo(
+    () => cart.reduce((sum, item) => sum + (item.subtotal * item.taxRate) / 100, 0),
+    [cart],
+  );
+
+  const total = useMemo(() => Math.max(0, subtotal - discountAmount + estimatedTax), [subtotal, discountAmount, estimatedTax]);
+
+  const mixedTotal = useMemo(
+    () => safeNumber(mixedPayments.efectivo) + safeNumber(mixedPayments.tarjeta) + safeNumber(mixedPayments.transferencia),
+    [mixedPayments],
+  );
+
+  const mixedDiff = useMemo(() => Math.abs(mixedTotal - total), [mixedTotal, total]);
+
+  const change = useMemo(() => {
+    if (paymentMode !== "EFECTIVO") return 0;
+    return Math.max(0, safeNumber(cashReceived) - total);
+  }, [cashReceived, paymentMode, total]);
+
+  const clearSale = useCallback((withConfirm = false) => {
+    if (withConfirm) {
+      const confirmed = window.confirm("Cancelar venta actual y vaciar carrito?");
+      if (!confirmed) return;
     }
 
-    const ticketHTML = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Ticket #${escapeHtml(String(sale.ticketNumber || ""))}</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Courier New', monospace; font-size: 12px; padding: 10px; width: 280px; }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .line { border-bottom: 1px dashed #000; margin: 6px 0; }
-            .row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
-            .item-name { margin-top: 6px; font-weight: bold; }
-            .total { font-size: 14px; font-weight: bold; }
-            .small { font-size: 10px; }
-          </style>
-        </head>
-        <body>
-          <div class="center bold" style="font-size: 14px;">TICKET DE VENTA</div>
-          <div class="center">Nro ${escapeHtml(String(sale.ticketNumber || ""))}</div>
-          <div class="line"></div>
+    setCart([]);
+    setDiscount(0);
+    setSelectedClient(null);
+    setCashReceived(0);
+    setMixedPayments({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+    setLastSale(null);
+    setProductQuery("");
+    setClientQuery("");
+    setProductResults([]);
+    setClientResults([]);
+    setShowProductResults(false);
+    setShowClientResults(false);
+  }, []);
 
-          <div class="row">
-            <span>Fecha:</span>
-            <span>${new Date(sale.createdAt).toLocaleString("es-AR")}</span>
-          </div>
-          <div class="row">
-            <span>Vendedor:</span>
-            <span>${escapeHtml(sale.user?.name || "Usuario")}</span>
-          </div>
-          <div class="row">
-            <span>Cliente:</span>
-            <span>${escapeHtml(sale.client?.name || "Consumidor final")}</span>
-          </div>
+  const openTicketPreview = useCallback(
+    (saleId: string) => {
+      router.push(`/dashboard/ticket-preview/${saleId}`);
+    },
+    [router],
+  );
 
-          <div class="line"></div>
-          <div class="bold">PRODUCTOS</div>
-          <div class="line"></div>
-
-          ${sale.saleItems
-            .map((item) => `
-              <div class="item-name">${escapeHtml(item.product?.name || "Producto")}</div>
-              <div class="row">
-                <span>${item.quantity} x $${formatMoney(item.price)}</span>
-                <span>$${formatMoney(item.subtotal)}</span>
-              </div>
-            `)
-            .join("")}
-
-          <div class="line"></div>
-          <div class="row"><span>Subtotal:</span><span>$${formatMoney(sale.subtotal)}</span></div>
-          ${sale.discount > 0 ? `<div class="row"><span>Descuento:</span><span>-$${formatMoney(sale.discount)}</span></div>` : ""}
-          <div class="line"></div>
-          <div class="row total"><span>TOTAL:</span><span>$${formatMoney(sale.total)}</span></div>
-          <div class="row"><span>Pago:</span><span>${escapeHtml(paymentMethodLabels[sale.paymentMethod] || sale.paymentMethod)}</span></div>
-
-          <div class="line"></div>
-          <div class="center small">Gracias por su compra</div>
-
-          <script>
-            window.onload = function () {
-              window.print();
-              setTimeout(function () { window.close(); }, 150);
-            }
-          </script>
-        </body>
-      </html>
-    `
-
-    printWindow.document.open()
-    printWindow.document.write(ticketHTML)
-    printWindow.document.close()
-  }
-
-  const handlePrintTicket = async (saleId: string) => {
-    try {
-      const response = await fetch(`/api/sales/${saleId}`)
-      if (!response.ok) {
-        throw new Error("No se pudo cargar el ticket para imprimir")
-      }
-
-      const saleData = await response.json()
-      printSaleTicket(saleData as SaleTicketDetail)
-    } catch (err: any) {
-      setError(err.message || "Error al imprimir ticket")
-    }
-  }
-
-  // Cargar productos
-  useEffect(() => {
-    fetch("/api/products")
-      .then(res => res.json())
-      .then(data => {
-        // Validar que data sea un array
-        if (!Array.isArray(data)) {
-          setProducts([]);
-          return;
-        }
-        
-        // Asegurar que price y stock sean números
-        const productsWithNumbers = data.map((p: any) => ({
-          ...p,
-          price: Number(p.price) || 0,
-          stock: Number(p.stock) || 0
-        }))
-        setProducts(productsWithNumbers)
-      })
-      .catch(() => setProducts([]))
-  }, [])
-
-  // Cargar clientes
-  useEffect(() => {
-    fetch("/api/clients?limit=100")
-      .then(async res => {
-        const data = await res.json();
-        
-        if (!res.ok) {
-          setClients([]);
-          return;
-        }
-        
-        // La API ahora devuelve { clients: [], pagination: {} }
-        const clientsArray = Array.isArray(data) ? data : (data.clients || []);
-        setClients(clientsArray);
-      })
-      .catch(() => setClients([]))
-  }, [])
-
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(searchProduct.toLowerCase()) ||
-    p.barcode?.includes(searchProduct)
-  )
-
-  const filteredClients = searchClient
-    ? clients.filter(c =>
-        c.name.toLowerCase().includes(searchClient.toLowerCase()) ||
-        c.email?.toLowerCase().includes(searchClient.toLowerCase()) ||
-        c.phone?.includes(searchClient)
-      )
-    : clients
-
-  const addToCart = (product: Product) => {
-    const existing = cart.find(item => item.id === product.id)
-    if (existing) {
-      if (existing.quantity >= product.stock) {
-        setError("Stock insuficiente")
-        return
-      }
-      setCart(cart.map(item =>
-        item.id === product.id
-          ? { ...item, quantity: item.quantity + 1, subtotal: (item.quantity + 1) * Number(item.price) }
-          : item
-      ))
-    } else {
-      if (product.stock < 1) {
-        setError("Producto sin stock")
-        return
-      }
-      setCart([...cart, { 
-        ...product,
-        price: Number(product.price),
-        stock: Number(product.stock),
-        quantity: 1, 
-        subtotal: Number(product.price) 
-      }])
-    }
-    setSearchProduct("")
-    setShowProductResults(false)
-    setError("")
-  }
-
-  const updateQuantity = (productId: string, newQuantity: number) => {
-    const product = products.find(p => p.id === productId)
-    if (!product) return
-
-    if (newQuantity > product.stock) {
-      setError("Stock insuficiente")
-      return
-    }
-
-    if (newQuantity <= 0) {
-      removeFromCart(productId)
-      return
-    }
-
-    setCart(cart.map(item =>
-      item.id === productId
-        ? { ...item, quantity: newQuantity, subtotal: newQuantity * Number(item.price) }
-        : item
-    ))
-    setError("")
-  }
-
-  const removeFromCart = (productId: string) => {
-    setCart(cart.filter(item => item.id !== productId))
-  }
-
-  const total = cart.reduce((sum, item) => sum + item.subtotal, 0)
-  const subtotal = total
-  const tax = 0
-
-  const handleCreateClient = async () => {
-    if (!newClientData.name.trim()) {
-      setError("El nombre del cliente es obligatorio")
-      return
-    }
-
-    setLoading(true)
-    setError("")
+  const sendTicketLink = useCallback(async (saleId: string) => {
+    const ticketUrl = `${window.location.origin}/dashboard/ticket-preview/${saleId}`;
 
     try {
-      const response = await fetch("/api/clients", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newClientData)
-      })
+      if (navigator.share) {
+        await navigator.share({
+          title: "Ticket de venta",
+          text: "Te comparto el ticket de la venta",
+          url: ticketUrl,
+        });
+      } else {
+        await navigator.clipboard.writeText(ticketUrl);
+        toast.success("Enlace del ticket copiado");
+      }
+    } catch {
+      toast.error("No se pudo compartir el ticket");
+    }
+  }, []);
 
-      if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || "Error al crear el cliente")
+  const addRecentlyAdded = useCallback((productId: string) => {
+    setRecentlyAddedIds((prev) => [...prev.filter((id) => id !== productId), productId]);
+    window.setTimeout(() => {
+      setRecentlyAddedIds((prev) => prev.filter((id) => id !== productId));
+    }, 650);
+  }, []);
+
+  const addToCart = useCallback(
+    (product: Product, fromScanner = false) => {
+      if (product.stock <= 0) {
+        toast.error("Producto sin stock disponible");
+        return;
       }
 
-      const newClient = await response.json()
-      setClients([...clients, newClient])
-      setSelectedClient(newClient)
-      setShowNewClientForm(false)
-      setNewClientData({ name: "", email: "", phone: "", address: "" })
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+      setCart((prev) => {
+        const existing = prev.find((item) => item.productId === product.id);
 
-  const handleSubmit = async () => {
+        if (existing) {
+          if (existing.quantity >= product.stock) {
+            toast.error("Stock insuficiente para aumentar cantidad");
+            return prev;
+          }
+
+          return prev.map((item) =>
+            item.productId === product.id
+              ? {
+                  ...item,
+                  quantity: item.quantity + 1,
+                  subtotal: (item.quantity + 1) * item.price,
+                }
+              : item,
+          );
+        }
+
+        return [
+          {
+            id: `${product.id}-${Date.now()}`,
+            productId: product.id,
+            name: product.name,
+            price: product.price,
+            quantity: 1,
+            stock: product.stock,
+            image: product.image,
+            taxRate: product.taxRate,
+            subtotal: product.price,
+          },
+          ...prev,
+        ];
+      });
+
+      addRecentlyAdded(product.id);
+
+      if (fromScanner) {
+        playScanSound();
+      }
+
+      setProductQuery("");
+      setProductResults([]);
+      setShowProductResults(false);
+      productInputRef.current?.focus();
+    },
+    [addRecentlyAdded],
+  );
+
+  const updateQuantity = useCallback((productId: string, newQuantity: number) => {
+    setCart((prev) => {
+      if (newQuantity <= 0) {
+        return prev.filter((item) => item.productId !== productId);
+      }
+
+      return prev.map((item) => {
+        if (item.productId !== productId) return item;
+
+        if (newQuantity > item.stock) {
+          toast.error("Stock insuficiente");
+          return item;
+        }
+
+        return {
+          ...item,
+          quantity: newQuantity,
+          subtotal: newQuantity * item.price,
+        };
+      });
+    });
+  }, []);
+
+  const removeFromCart = useCallback((productId: string) => {
+    setCart((prev) => prev.filter((item) => item.productId !== productId));
+  }, []);
+
+  const fetchProducts = useCallback(async (query: string) => {
+    try {
+      const params = new URLSearchParams({
+        limit: "12",
+      });
+
+      if (query.trim()) {
+        params.set("search", query.trim());
+      }
+
+      const response = await fetch(`/api/products?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok || !Array.isArray(data)) {
+        setProductResults([]);
+        return;
+      }
+
+      const normalized = data
+        .map(mapProduct)
+        .filter((product: Product) => product.price >= 0)
+        .slice(0, 12);
+
+      setProductResults(normalized);
+    } catch {
+      setProductResults([]);
+    }
+  }, []);
+
+  const fetchClients = useCallback(async (query: string) => {
+    try {
+      const params = new URLSearchParams({
+        limit: "10",
+      });
+
+      if (query.trim()) {
+        params.set("search", query.trim());
+      }
+
+      const response = await fetch(`/api/clients?${params.toString()}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setClientResults([]);
+        return;
+      }
+
+      const clients = Array.isArray(data) ? data : data.clients;
+      if (!Array.isArray(clients)) {
+        setClientResults([]);
+        return;
+      }
+
+      setClientResults(clients);
+    } catch {
+      setClientResults([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = window.setTimeout(() => {
+      if (!showProductResults) return;
+      fetchProducts(productQuery);
+    }, 120);
+
+    return () => window.clearTimeout(handler);
+  }, [fetchProducts, productQuery, showProductResults]);
+
+  useEffect(() => {
+    const handler = window.setTimeout(() => {
+      if (!showClientResults) return;
+      fetchClients(clientQuery);
+    }, 150);
+
+    return () => window.clearTimeout(handler);
+  }, [clientQuery, fetchClients, showClientResults]);
+
+  const finalizeSale = useCallback(async (confirmedByUser = false) => {
     if (cart.length === 0) {
-      setError("Agrega productos al carrito")
-      return
+      toast.error("Agrega al menos un producto para finalizar");
+      return;
     }
 
-    if (!selectedClient) {
-      setError("Selecciona un cliente")
-      return
+    const computedTotal = safeNumber(subtotal) - safeNumber(discountAmount) + safeNumber(estimatedTax);
+    const finalTotal = Number(computedTotal.toFixed(2));
+
+    if (finalTotal <= 0) {
+      toast.error("El total debe ser mayor a cero");
+      return;
     }
 
-    // Validar límite de crédito si se usa cuenta corriente
-    if (paymentMethod === "CUENTA_CORRIENTE") {
-      if (!selectedClient.hasCreditAccount) {
-        setError("Este cliente no tiene cuenta corriente habilitada")
-        return
-      }
-
-      const currentDebt = Number(selectedClient.currentDebt || 0)
-      const creditLimit = Number(selectedClient.creditLimit || 0)
-      const newDebt = currentDebt + total
-
-      if (creditLimit === 0) {
-        setError("Este cliente no tiene límite de crédito asignado")
-        return
-      }
-
-      if (newDebt > creditLimit) {
-        setError(`El cliente excedería su límite de crédito. Deuda actual: $${currentDebt.toLocaleString()}, Límite: $${creditLimit.toLocaleString()}, Nueva deuda: $${newDebt.toLocaleString()}`)
-        return
-      }
-
-      // Verificar si el cliente está bloqueado
-      if (selectedClient.status === 'BLOCKED') {
-        setError("Este cliente está bloqueado y no puede realizar compras a crédito")
-        return
-      }
+    if (paymentMode === "EFECTIVO" && safeNumber(cashReceived) < finalTotal) {
+      toast.error("El pago recibido en efectivo es menor al total");
+      return;
     }
 
-    // Validar campos requeridos para factura electrónica
-    if (documentType !== "ticket") {
-      if (!clientDocType || !clientDocNumber) {
-        setError("Para emitir factura electrónica, ingresá el tipo y número de documento del cliente")
-        return
-      }
+    if (paymentMode === "MIXTO" && mixedDiff > 0.01) {
+      toast.error("En pago mixto, la suma debe coincidir con el total");
+      return;
     }
 
-    setLoading(true)
-    setError("")
+    if (!confirmedByUser) {
+      setConfirmSaleOpen(true);
+      return;
+    }
+
+    setConfirmSaleOpen(false);
+
+    setIsSaving(true);
 
     try {
-      const payload = {
-        clientId: selectedClient.id,
-        paymentMethod,
-        total: Number(total),
-        subtotal: Number(subtotal),
-        tax: Number(tax),
-        discount: 0,
-        discountType: "fixed" as const,
-        documentType,
-        ...(documentType !== "ticket" && {
-          clientDocType,
-          clientDocNumber,
-          generateAfipInvoice: true
-        }),
-        items: cart.map(item => ({
-          productId: item.id,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.price),
-          subtotal: Number(item.subtotal)
-        }))
+      let paymentMethod:
+        | "EFECTIVO"
+        | "TARJETA_DEBITO"
+        | "TRANSFERENCIA"
+        | "MIXTO" = "EFECTIVO";
+
+      let hasMixedPayment = false;
+      let payments: Array<{ method: string; amount: number; reference: null }> = [];
+
+      if (paymentMode === "TARJETA") {
+        paymentMethod = "TARJETA_DEBITO";
       }
+
+      if (paymentMode === "TRANSFERENCIA") {
+        paymentMethod = "TRANSFERENCIA";
+      }
+
+      if (paymentMode === "MIXTO") {
+        paymentMethod = "MIXTO";
+        hasMixedPayment = true;
+
+        payments = [
+          safeNumber(mixedPayments.efectivo) > 0
+            ? { method: "EFECTIVO", amount: safeNumber(mixedPayments.efectivo), reference: null }
+            : null,
+          safeNumber(mixedPayments.tarjeta) > 0
+            ? { method: "TARJETA_DEBITO", amount: safeNumber(mixedPayments.tarjeta), reference: null }
+            : null,
+          safeNumber(mixedPayments.transferencia) > 0
+            ? { method: "TRANSFERENCIA", amount: safeNumber(mixedPayments.transferencia), reference: null }
+            : null,
+        ].filter(Boolean) as Array<{ method: string; amount: number; reference: null }>;
+      }
+
+      if (hasMixedPayment && payments.length === 0) {
+        toast.error("Agrega al menos un pago válido");
+        setIsSaving(false);
+        return;
+      }
+
+      if (!hasMixedPayment) {
+        payments = [
+          { method: paymentMethod, amount: finalTotal, reference: null },
+        ];
+      }
+
+      const payload = {
+        clientId: selectedClient?.id || null,
+        paymentMethod,
+        hasMixedPayment,
+        payments,
+        total: finalTotal,
+        subtotal: safeNumber(subtotal),
+        tax: safeNumber(estimatedTax),
+        discount: safeNumber(discountAmount),
+        discountType: "fixed" as const,
+        documentType: "ticket" as const,
+        items: cart.map((item) => ({
+          productId: item.productId,
+          quantity: safeNumber(item.quantity),
+          unitPrice: safeNumber(item.price),
+          subtotal: safeNumber(item.subtotal),
+        })),
+      };
 
       const response = await fetch("/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      })
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        const data = await response.json()
-        
-        // Mostrar error detallado
-        let errorMsg = data.error || "Error al crear la venta"
-        if (data.field) {
-          errorMsg += `\n\nCampo: ${data.field}`
-        }
-        if (data.details) {
-          errorMsg += `\n\nDetalles:\n${data.details.map((d: any) => `- ${d.field}: ${d.message}`).join('\n')}`
-        }
-        
-        alert(errorMsg) // Temporal para debug
-        throw new Error(data.error || "Error al crear la venta")
+        toast.error(result.error || "No se pudo registrar la venta");
+        return;
       }
 
-      const result = await response.json()
+      setLastSale({
+        id: result.id,
+        ticketNumber: result.ticketNumber,
+      });
 
-      if (printTicketAfterSale && result?.id) {
-        await handlePrintTicket(result.id)
+      toast.success("Venta completada correctamente");
+
+      setCart([]);
+      setDiscount(0);
+      setSelectedClient(null);
+      setCashReceived(0);
+      setMixedPayments({ efectivo: 0, tarjeta: 0, transferencia: 0 });
+      setClientQuery("");
+
+      if (printAfterSale && result.id) {
+        openTicketPreview(result.id);
       }
-
-      // Mostrar CAE si se generó factura AFIP
-      if (result.afipInvoice && result.afipInvoice.cae) {
-        alert(
-          `✅ Venta registrada exitosamente!\n\n` +
-          `📄 Factura Electrónica AFIP\n` +
-          `CAE: ${result.afipInvoice.cae}\n` +
-          `Vencimiento: ${result.afipInvoice.caeDueDate}\n` +
-          `Comprobante: ${result.afipInvoice.voucherType}-${String(result.afipInvoice.voucherNumber).padStart(8, '0')}`
-        )
-      }
-
-      // Éxito - redirigir a lista de ventas
-      router.push("/dashboard/ventas")
-    } catch (err: any) {
-      setError(err.message)
+    } catch {
+      toast.error("Error inesperado al procesar la venta");
     } finally {
-      setLoading(false)
+      setIsSaving(false);
     }
-  }
+  }, [
+    cart,
+    cashReceived,
+    discountAmount,
+    estimatedTax,
+    mixedDiff,
+    mixedPayments,
+    openTicketPreview,
+    paymentMode,
+    printAfterSale,
+    selectedClient,
+    subtotal,
+    total,
+  ]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "F1") {
+        event.preventDefault();
+        setShowProductResults(true);
+        productInputRef.current?.focus();
+      }
+
+      if (event.key === "F2") {
+        event.preventDefault();
+        setShowClientResults(true);
+        clientInputRef.current?.focus();
+      }
+
+      if (event.key === "F3") {
+        event.preventDefault();
+        void finalizeSale();
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        clearSale(true);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clearSale, finalizeSale]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Nueva Venta</h1>
-          <p className="text-gray-500 mt-1">Procesa una nueva venta</p>
+    <div className="space-y-5 pb-8">
+      <Dialog open={confirmSaleOpen} onOpenChange={setConfirmSaleOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar venta</DialogTitle>
+            <DialogDescription>
+              Revisa los datos antes de registrar la venta.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm">
+            <div className="flex justify-between text-gray-600">
+              <span>Items</span>
+              <span className="font-semibold text-gray-900">{itemsCount}</span>
+            </div>
+            <div className="flex justify-between text-gray-600">
+              <span>Cliente</span>
+              <span className="font-semibold text-gray-900">
+                {selectedClient?.name || CONSUMIDOR_FINAL_LABEL}
+              </span>
+            </div>
+            <div className="flex justify-between text-gray-600">
+              <span>Metodo</span>
+              <span className="font-semibold text-gray-900">{paymentMode}</span>
+            </div>
+            <Separator />
+            <div className="flex justify-between text-base font-bold text-gray-900">
+              <span>Total</span>
+              <span>{formatCurrency(total)}</span>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmSaleOpen(false)}
+              disabled={isSaving}
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => void finalizeSale(true)}
+              disabled={isSaving}
+            >
+              {isSaving ? "Procesando..." : "Confirmar y finalizar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex items-center gap-2">
+          <Badge className="h-9 rounded-full bg-blue-100 px-4 text-blue-700 hover:bg-blue-100">
+            <ShoppingCart className="mr-2 h-4 w-4" />
+            {itemsCount} items
+          </Badge>
+          <Button variant="outline" className="h-10" onClick={() => router.push("/dashboard/ventas")}>
+            Salir
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => router.push("/dashboard/ventas")}
-        >
-          Cancelar
-        </Button>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-          {error}
-        </div>
+      {lastSale && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div className="flex items-center gap-2 text-green-800">
+              <CheckCircle2 className="h-5 w-5" />
+              <span className="font-semibold">
+                Venta completada #{lastSale.ticketNumber || lastSale.id.slice(-6)}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="h-10 bg-blue-600 hover:bg-blue-700"
+                onClick={() => openTicketPreview(lastSale.id)}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Imprimir ticket
+              </Button>
+              <Button
+                className="h-10 bg-sky-600 hover:bg-sky-700"
+                onClick={() => sendTicketLink(lastSale.id)}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Enviar ticket
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Panel izquierdo - Productos y cliente */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Buscar producto */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Search className="w-5 h-5" />
-              Buscar Producto
-            </h2>
-            <div className="relative">
-              <input
-                type="text"
-                value={searchProduct}
-                onChange={(e) => {
-                  setSearchProduct(e.target.value)
-                  setShowProductResults(true)
-                }}
-                onFocus={() => setShowProductResults(true)}
-                placeholder="Nombre o código de barras..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              />
-              {showProductResults && searchProduct && (
-                <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map(product => (
-                      <button
-                        key={product.id}
-                        onClick={() => addToCart(product)}
-                        className="w-full px-4 py-3 hover:bg-gray-50 text-left border-b last:border-b-0 flex justify-between items-center"
-                      >
-                        <div>
-                          <div className="font-medium">{product.name}</div>
-                          <div className="text-sm text-gray-500">
-                            Stock: {product.stock} | ${product.price.toLocaleString()}
-                          </div>
-                        </div>
-                        <Plus className="w-5 h-5 text-blue-600" />
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-3 text-gray-500 text-center">
-                      No se encontraron productos
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </Card>
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <ScanLine className="h-5 w-5 text-blue-600" />
+            1. Buscador de Productos
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-3.5 h-4 w-4 text-gray-400" />
+            <Input
+              ref={productInputRef}
+              value={productQuery}
+              onChange={(event) => {
+                setProductQuery(event.target.value);
+                setShowProductResults(true);
+              }}
+              onFocus={() => {
+                setShowProductResults(true);
+                if (!productResults.length) {
+                  void fetchProducts(productQuery);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
 
-          {/* Seleccionar cliente */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Search className="w-5 h-5" />
-              Seleccionar Cliente
-            </h2>
-            {selectedClient ? (
-              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-                <div>
-                  <div className="font-medium text-blue-900">{selectedClient.name}</div>
-                  {selectedClient.email && (
-                    <div className="text-sm text-blue-700">{selectedClient.email}</div>
-                  )}
-                </div>
+                  const needle = productQuery.trim().toLowerCase();
+                  if (!needle) return;
+
+                  const exactBarcode = productResults.find(
+                    (item) => item.barcode && item.barcode.toLowerCase() === needle,
+                  );
+
+                  const exactSku = productResults.find(
+                    (item) => item.sku && item.sku.toLowerCase() === needle,
+                  );
+
+                  const product = exactBarcode || exactSku || (productResults.length === 1 ? productResults[0] : null);
+
+                  if (product) {
+                    addToCart(product, true);
+                  } else {
+                    toast.error("No se encontro un producto exacto para ese codigo");
+                  }
+                }
+              }}
+              placeholder="Buscar por nombre o escanear codigo de barras..."
+              className="h-12 pl-10 text-base"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+            <Keyboard className="h-4 w-4" />
+            <span>F1 buscar producto</span>
+            <span>•</span>
+            <span>F2 cliente</span>
+            <span>•</span>
+            <span>F3 finalizar</span>
+            <span>•</span>
+            <span>ESC cancelar</span>
+          </div>
+
+          {showProductResults && productResults.length > 0 && (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {productResults.map((product) => (
                 <button
-                  onClick={() => setSelectedClient(null)}
-                  className="text-blue-600 hover:text-blue-800"
+                  key={product.id}
+                  type="button"
+                  onMouseDown={() => addToCart(product, false)}
+                  className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
                 >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            ) : showNewClientForm ? (
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Nombre *
-                  </label>
-                  <input
-                    type="text"
-                    value={newClientData.name}
-                    onChange={(e) => setNewClientData({ ...newClientData, name: e.target.value })}
-                    placeholder="Juan Pérez"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
-                  </label>
-                  <input
-                    type="email"
-                    value={newClientData.email}
-                    onChange={(e) => setNewClientData({ ...newClientData, email: e.target.value })}
-                    placeholder="juan@ejemplo.com"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Teléfono
-                  </label>
-                  <input
-                    type="tel"
-                    value={newClientData.phone}
-                    onChange={(e) => setNewClientData({ ...newClientData, phone: e.target.value })}
-                    placeholder="3511234567"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Dirección
-                  </label>
-                  <input
-                    type="text"
-                    value={newClientData.address}
-                    onChange={(e) => setNewClientData({ ...newClientData, address: e.target.value })}
-                    placeholder="Calle 123"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleCreateClient}
-                    disabled={loading}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    {loading ? "Creando..." : "Crear Cliente"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowNewClientForm(false)
-                      setNewClientData({ name: "", email: "", phone: "", address: "" })
-                    }}
-                    className="flex-1"
-                  >
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={searchClient}
-                    onChange={(e) => {
-                      setSearchClient(e.target.value)
-                      setShowClientResults(true)
-                    }}
-                    onFocus={() => setShowClientResults(true)}
-                    placeholder="Buscar por nombre, email o teléfono..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                  />
-                  {showClientResults && (
-                    <div className="absolute z-10 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      {filteredClients.length > 0 ? (
-                        filteredClients.map(client => (
-                          <button
-                            key={client.id}
-                            onClick={() => {
-                              setSelectedClient(client)
-                              setSearchClient("")
-                              setShowClientResults(false)
-                            }}
-                            className="w-full px-4 py-3 hover:bg-gray-50 text-left border-b last:border-b-0"
-                          >
-                            <div className="font-medium">{client.name}</div>
-                            {client.email && (
-                              <div className="text-sm text-gray-500">{client.email}</div>
-                            )}
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-gray-500 text-center">
-                          {clients.length === 0 ? 'No hay clientes registrados' : 'No se encontraron clientes con ese criterio'}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowNewClientForm(true)}
-                  className="w-full border-dashed border-2 hover:bg-blue-50 hover:border-blue-300"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar Nuevo Cliente
-                </Button>
-              </div>
-            )}
-          </Card>
-
-          {/* Carrito */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5" />
-              Carrito ({cart.length} items)
-            </h2>
-            {cart.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                El carrito está vacío. Busca y agrega productos.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {cart.map(item => (
-                  <div key={item.id} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex-1">
-                      <div className="font-medium">{item.name}</div>
-                      <div className="text-sm text-gray-500">
-                        ${item.price.toLocaleString()} c/u
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-100"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 0)}
-                        className="w-16 text-center border border-gray-300 rounded py-1"
-                        min="1"
-                        {...(typeof item.stock === 'number' && !isNaN(item.stock) && { max: item.stock })}
-                      />
-                      <button
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-300 rounded hover:bg-gray-100"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <div className="w-24 text-right font-semibold">
-                      ${item.subtotal.toLocaleString()}
-                    </div>
-                    <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        {/* Panel derecho - Resumen y pago */}
-        <div className="space-y-6">
-          <Card className="p-6 sticky top-6">
-            <h2 className="text-lg font-semibold mb-4">Resumen de Venta</h2>
-            
-            <div className="space-y-3 mb-6">
-              <div className="flex justify-between text-gray-600">
-                <span>Subtotal:</span>
-                <span>${total.toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between text-gray-600">
-                <span>Items:</span>
-                <span>{cart.reduce((sum, item) => sum + item.quantity, 0)}</span>
-              </div>
-              <div className="border-t pt-3">
-                <div className="flex justify-between text-xl font-bold">
-                  <span>Total:</span>
-                  <span className="text-blue-600">${total.toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Método de Pago
-              </label>
-              <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as any)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              >
-                <option value="EFECTIVO">Efectivo</option>
-                <option value="TARJETA_DEBITO">Tarjeta Débito</option>
-                <option value="TARJETA_CREDITO">Tarjeta Crédito</option>
-                <option value="TRANSFERENCIA">Transferencia</option>
-                <option value="QR">QR</option>
-                <option value="CUENTA_CORRIENTE">Cuenta Corriente</option>
-                <option value="OTRO">Otro</option>
-              </select>
-            </div>
-
-            {/* Selector de Tipo de Comprobante */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tipo de Comprobante
-              </label>
-              <select
-                value={documentType}
-                onChange={(e) => setDocumentType(e.target.value as any)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              >
-                <option value="ticket">Ticket</option>
-                <option value="factura_a">Factura A (Responsable Inscripto)</option>
-                <option value="factura_b">Factura B (Consumidor Final)</option>
-                <option value="factura_c">Factura C (Exento)</option>
-              </select>
-              
-              {documentType !== "ticket" && (
-                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm font-medium text-blue-900 mb-3">
-                    📄 Factura Electrónica AFIP
-                  </p>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo de Documento *
-                      </label>
-                      <select
-                        value={clientDocType}
-                        onChange={(e) => setClientDocType(e.target.value as any)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        required
-                      >
-                        <option value="">Seleccionar...</option>
-                        <option value="CUIT">CUIT</option>
-                        <option value="CUIL">CUIL</option>
-                        <option value="DNI">DNI</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Número de Documento *
-                      </label>
-                      <input
-                        type="text"
-                        value={clientDocNumber}
-                        onChange={(e) => setClientDocNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                        placeholder="20123456789"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        maxLength={11}
-                        required
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        {clientDocType === "CUIT" || clientDocType === "CUIL" ? "11 dígitos sin guiones" : "Solo números"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mb-6">
-              {/* Alerta de Crédito Disponible */}
-              {paymentMethod === "CUENTA_CORRIENTE" && selectedClient && (
-                <div className={`mt-3 p-3 rounded-lg ${
-                  !selectedClient.hasCreditAccount
-                    ? 'bg-red-50 border border-red-200'
-                    : Number(selectedClient.creditLimit || 0) === 0
-                    ? 'bg-red-50 border border-red-200'
-                    : (Number(selectedClient.currentDebt || 0) + total) > Number(selectedClient.creditLimit || 0)
-                    ? 'bg-orange-50 border border-orange-200'
-                    : 'bg-blue-50 border border-blue-200'
-                }`}>
-                  <div className="text-sm">
-                    {!selectedClient.hasCreditAccount ? (
-                      <>
-                        <p className="font-medium text-red-700">⚠️ Cuenta Corriente Deshabilitada</p>
-                        <p className="text-red-600 text-xs mt-1">Este cliente no tiene cuenta corriente habilitada. Habilítala desde la sección Clientes.</p>
-                      </>
-                    ) : Number(selectedClient.creditLimit || 0) === 0 ? (
-                      <>
-                        <p className="font-medium text-red-700">⚠️ Sin Límite de Crédito</p>
-                        <p className="text-red-600 text-xs mt-1">Este cliente no tiene límite de crédito asignado.</p>
-                      </>
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-gray-100">
+                    {product.image ? (
+                      <img src={product.image} alt={product.name} className="h-full w-full object-cover" />
                     ) : (
-                      <>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-gray-700">Deuda actual:</span>
-                          <span className="font-medium">${Number(selectedClient.currentDebt || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-gray-700">Límite de crédito:</span>
-                          <span className="font-medium">${Number(selectedClient.creditLimit || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-gray-700">Nueva deuda:</span>
-                          <span className="font-bold text-blue-600">
-                            ${(Number(selectedClient.currentDebt || 0) + total).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full ${
-                              ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100 >= 100
-                                ? 'bg-red-500'
-                                : ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100 >= 80
-                                ? 'bg-orange-500'
-                                : 'bg-green-500'
-                            }`}
-                            style={{
-                              width: `${Math.min(
-                                ((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1)) * 100,
-                                100
-                              )}%`
-                            }}
-                          />
-                        </div>
-                        <p className="text-xs text-gray-600 mt-1">
-                          {((Number(selectedClient.currentDebt || 0) + total) / Number(selectedClient.creditLimit || 1) * 100).toFixed(1)}% del límite
-                        </p>
-                      </>
+                      <div className="flex h-full items-center justify-center text-xs text-gray-400">Sin foto</div>
                     )}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-gray-900">{product.name}</p>
+                    <p className="truncate text-xs text-gray-500">{product.barcode || product.sku}</p>
+                    <div className="mt-1 flex items-center justify-between text-xs">
+                      <span className="font-semibold text-blue-700">{formatCurrency(product.price)}</span>
+                      <span className={product.stock > 0 ? "text-emerald-600" : "text-red-600"}>
+                        Stock: {product.stock}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[2fr_1fr]">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <UserRound className="h-5 w-5 text-blue-600" />
+                Cliente
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                Cliente actual: <strong>{selectedClient?.name || CONSUMIDOR_FINAL_LABEL}</strong>
+              </div>
+
+              <div className="relative">
+                <Input
+                  ref={clientInputRef}
+                  value={clientQuery}
+                  onChange={(event) => {
+                    setClientQuery(event.target.value);
+                    setShowClientResults(true);
+                  }}
+                  onFocus={() => {
+                    setShowClientResults(true);
+                    if (!clientResults.length) {
+                      void fetchClients(clientQuery);
+                    }
+                  }}
+                  placeholder="Buscar por nombre, email o telefono"
+                  className="h-11"
+                />
+              </div>
+
+              {showClientResults && clientResults.length > 0 && (
+                <div className="max-h-56 overflow-y-auto rounded-md border border-gray-200">
+                  {clientResults.map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      onMouseDown={() => {
+                        setSelectedClient(client);
+                        setClientQuery(client.name);
+                        setShowClientResults(false);
+                      }}
+                      className="flex w-full items-start justify-between border-b border-gray-100 px-3 py-2 text-left last:border-b-0 hover:bg-gray-50"
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900">{client.name}</p>
+                        <p className="text-xs text-gray-500">{client.email || client.phone || "Sin contacto"}</p>
+                      </div>
+                      <p className="text-xs text-blue-600">{client.purchaseCount || 0} compras</p>
+                    </button>
+                  ))}
                 </div>
               )}
-            </div>
 
-            <div className="space-y-3">
-              <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={printTicketAfterSale}
-                  onChange={(e) => setPrintTicketAfterSale(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                Imprimir ticket al completar la venta
-              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10"
+                  onClick={() => {
+                    setSelectedClient(null);
+                    setClientQuery("");
+                    setShowClientResults(false);
+                  }}
+                >
+                  Usar Consumidor Final
+                </Button>
+              </div>
 
-              <Button
-                onClick={handleSubmit}
-                disabled={loading || cart.length === 0 || !selectedClient}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3"
-              >
-                {loading ? "Procesando..." : "Procesar Venta"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCart([])
-                  setSelectedClient(null)
-                  setError("")
-                }}
-                className="w-full"
-              >
-                Limpiar Todo
-              </Button>
-            </div>
+              {selectedClient && (
+                <div className="grid gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Total gastado</p>
+                    <p className="font-semibold text-gray-900">{formatCurrency(safeNumber(selectedClient.totalPurchased))}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Compras</p>
+                    <p className="font-semibold text-gray-900">{safeNumber(selectedClient.purchaseCount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Ultima compra</p>
+                    <p className="font-semibold text-gray-900">
+                      {selectedClient.lastPurchase
+                        ? new Date(selectedClient.lastPurchase).toLocaleDateString("es-AR")
+                        : "Sin compras"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ShoppingCart className="h-5 w-5 text-blue-600" />
+                  2. Carrito de Venta
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Badge variant="outline" className="h-8 px-3">
+                    {itemsCount} items
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    className="h-8"
+                    disabled={cart.length === 0}
+                    onClick={() => clearSale(true)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    Vaciar carrito
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {cart.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-gray-300 py-10 text-center text-gray-500">
+                  El carrito esta vacio. Escanea o busca productos para empezar.
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="w-full min-w-[680px] text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-3 py-3 text-left">Producto</th>
+                        <th className="px-3 py-3 text-right">Precio unitario</th>
+                        <th className="px-3 py-3 text-center">Cantidad</th>
+                        <th className="px-3 py-3 text-right">Subtotal</th>
+                        <th className="px-3 py-3 text-center">Eliminar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cart.map((item) => {
+                        const highlight = recentlyAddedIds.includes(item.productId);
+                        return (
+                          <tr
+                            key={item.id}
+                            className={`border-t transition ${
+                              highlight ? "bg-emerald-50 duration-500" : "bg-white"
+                            }`}
+                          >
+                            <td className="px-3 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 overflow-hidden rounded bg-gray-100">
+                                  {item.image ? (
+                                    <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full items-center justify-center text-[10px] text-gray-400">N/A</div>
+                                  )}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-900">{item.name}</p>
+                                  <p className="text-xs text-gray-500">Stock: {item.stock}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right font-medium text-gray-900">
+                              {formatCurrency(item.price)}
+                            </td>
+                            <td className="px-3 py-3">
+                              <div className="flex items-center justify-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-9 w-9"
+                                  onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </Button>
+                                <span className="inline-flex w-10 justify-center rounded border border-gray-200 bg-white py-1 text-center font-semibold">
+                                  {item.quantity}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-9 w-9"
+                                  onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-right font-semibold text-gray-900">
+                              {formatCurrency(item.subtotal)}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                onClick={() => removeFromCart(item.productId)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
           </Card>
         </div>
+
+        <Card className="h-fit xl:sticky xl:top-4">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">3. Resumen y Cobro</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>Descuento</span>
+                <span>- {formatCurrency(discountAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-gray-600">
+                <span>IVA estimado</span>
+                <span>{formatCurrency(estimatedTax)}</span>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between text-xl font-bold text-gray-900">
+                <span>TOTAL</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="discount">Descuento (monto fijo)</Label>
+              <Input
+                id="discount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={discount || ""}
+                onChange={(event) => setDiscount(safeNumber(event.target.value))}
+                className="h-11"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Metodo de pago</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={paymentMode === "EFECTIVO" ? "default" : "outline"}
+                  className={paymentMode === "EFECTIVO" ? "h-11 bg-blue-600 hover:bg-blue-700" : "h-11"}
+                  onClick={() => setPaymentMode("EFECTIVO")}
+                >
+                  <Banknote className="mr-2 h-4 w-4" />
+                  Efectivo
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMode === "TARJETA" ? "default" : "outline"}
+                  className={paymentMode === "TARJETA" ? "h-11 bg-blue-600 hover:bg-blue-700" : "h-11"}
+                  onClick={() => setPaymentMode("TARJETA")}
+                >
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Tarjeta
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMode === "TRANSFERENCIA" ? "default" : "outline"}
+                  className={paymentMode === "TRANSFERENCIA" ? "h-11 bg-blue-600 hover:bg-blue-700" : "h-11"}
+                  onClick={() => setPaymentMode("TRANSFERENCIA")}
+                >
+                  <Landmark className="mr-2 h-4 w-4" />
+                  Transferencia
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentMode === "MIXTO" ? "default" : "outline"}
+                  className={paymentMode === "MIXTO" ? "h-11 bg-blue-600 hover:bg-blue-700" : "h-11"}
+                  onClick={() => setPaymentMode("MIXTO")}
+                >
+                  Mixto
+                </Button>
+              </div>
+            </div>
+
+            {paymentMode === "EFECTIVO" && (
+              <div className="space-y-2 rounded-lg border border-gray-200 p-3">
+                <Label htmlFor="cashReceived">Pago recibido</Label>
+                <Input
+                  id="cashReceived"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cashReceived || ""}
+                  onChange={(event) => setCashReceived(safeNumber(event.target.value))}
+                  className="h-11"
+                />
+                <div className="flex items-center justify-between text-sm text-gray-600">
+                  <span>Vuelto</span>
+                  <span className="font-semibold text-emerald-600">{formatCurrency(change)}</span>
+                </div>
+              </div>
+            )}
+
+            {paymentMode === "MIXTO" && (
+              <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                <p className="text-sm font-medium text-gray-700">Distribucion del pago mixto</p>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mixCash">Efectivo</Label>
+                  <Input
+                    id="mixCash"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mixedPayments.efectivo || ""}
+                    onChange={(event) =>
+                      setMixedPayments((prev) => ({ ...prev, efectivo: safeNumber(event.target.value) }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mixCard">Tarjeta</Label>
+                  <Input
+                    id="mixCard"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mixedPayments.tarjeta || ""}
+                    onChange={(event) =>
+                      setMixedPayments((prev) => ({ ...prev, tarjeta: safeNumber(event.target.value) }))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="mixTransfer">Transferencia</Label>
+                  <Input
+                    id="mixTransfer"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={mixedPayments.transferencia || ""}
+                    onChange={(event) =>
+                      setMixedPayments((prev) => ({ ...prev, transferencia: safeNumber(event.target.value) }))
+                    }
+                  />
+                </div>
+
+                <div className="rounded bg-gray-50 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span>Total cargado</span>
+                    <span className="font-semibold">{formatCurrency(mixedTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Diferencia</span>
+                    <span className={mixedDiff <= 0.01 ? "font-semibold text-emerald-600" : "font-semibold text-red-600"}>
+                      {formatCurrency(total - mixedTotal)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={printAfterSale}
+                onChange={(event) => setPrintAfterSale(event.target.checked)}
+                className="h-4 w-4"
+              />
+              Imprimir ticket al finalizar
+            </label>
+
+            <Button
+              type="button"
+              onClick={() => void finalizeSale()}
+              disabled={isSaving || cart.length === 0}
+              className="h-14 w-full bg-emerald-600 text-base font-bold hover:bg-emerald-700"
+            >
+              {isSaving ? "Procesando..." : "FINALIZAR VENTA"}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full border-red-300 text-red-700 hover:bg-red-50"
+              onClick={() => clearSale(true)}
+            >
+              Cancelar venta (ESC)
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     </div>
-  )
+  );
 }

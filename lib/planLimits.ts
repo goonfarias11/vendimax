@@ -1,5 +1,5 @@
 import { prisma } from './prisma';
-import { STRIPE_PLANS, type PlanType } from './stripe';
+import { PLAN_CONFIGS, type PlanType } from './planConfig';
 
 export class PlanLimitsError extends Error {
   constructor(message: string) {
@@ -22,19 +22,19 @@ export async function checkProductLimit(businessId: string): Promise<void> {
   }
 
   const planType = business.planType as PlanType;
-  const maxProducts = STRIPE_PLANS[planType].features.maxProducts;
+  const maxProducts = PLAN_CONFIGS[planType].features.maxProducts;
 
   if (maxProducts === -1) {
     return; // ilimitado
   }
 
   const productCount = await prisma.product.count({
-    where: { isActive: true },
+    where: { isActive: true, businessId },
   });
 
   if (productCount >= maxProducts) {
     throw new PlanLimitsError(
-      `Has alcanzado el límite de ${maxProducts} productos para el ${STRIPE_PLANS[planType].name}. Actualiza tu plan para agregar más productos.`
+      `Has alcanzado el límite de ${maxProducts} productos para el ${PLAN_CONFIGS[planType].name}. Actualiza tu plan para agregar más productos.`
     );
   }
 }
@@ -53,7 +53,7 @@ export async function checkSalesLimit(businessId: string): Promise<void> {
   }
 
   const planType = business.planType as PlanType;
-  const maxSales = STRIPE_PLANS[planType].features.maxSales;
+  const maxSales = PLAN_CONFIGS[planType].features.maxSales;
 
   if (maxSales === -1) {
     return; // ilimitado
@@ -65,6 +65,7 @@ export async function checkSalesLimit(businessId: string): Promise<void> {
 
   const salesCount = await prisma.sale.count({
     where: {
+      businessId,
       createdAt: {
         gte: startOfMonth,
       },
@@ -73,7 +74,7 @@ export async function checkSalesLimit(businessId: string): Promise<void> {
 
   if (salesCount >= maxSales) {
     throw new PlanLimitsError(
-      `Has alcanzado el límite de ${maxSales} ventas mensuales para el ${STRIPE_PLANS[planType].name}. Actualiza tu plan para procesar más ventas.`
+      `Has alcanzado el límite de ${maxSales} ventas mensuales para el ${PLAN_CONFIGS[planType].name}. Actualiza tu plan para procesar más ventas.`
     );
   }
 }
@@ -95,7 +96,7 @@ export async function checkUserLimit(businessId: string): Promise<void> {
   }
 
   const planType = business.planType as PlanType;
-  const maxUsers = STRIPE_PLANS[planType].features.maxUsers;
+  const maxUsers = PLAN_CONFIGS[planType].features.maxUsers;
 
   if (maxUsers === -1) {
     return; // ilimitado
@@ -103,7 +104,7 @@ export async function checkUserLimit(businessId: string): Promise<void> {
 
   if (business.users.length >= maxUsers) {
     throw new PlanLimitsError(
-      `Has alcanzado el límite de ${maxUsers} usuarios para el ${STRIPE_PLANS[planType].name}. Actualiza tu plan para agregar más usuarios.`
+      `Has alcanzado el límite de ${maxUsers} usuarios para el ${PLAN_CONFIGS[planType].name}. Actualiza tu plan para agregar más usuarios.`
     );
   }
 }
@@ -122,7 +123,7 @@ export async function checkFeatureAccess(
   }
 
   const planType = business.planType as PlanType;
-  return STRIPE_PLANS[planType].features[feature] as boolean;
+  return PLAN_CONFIGS[planType].features[feature] as boolean;
 }
 
 // Obtener información del plan actual
@@ -139,11 +140,11 @@ export async function getCurrentPlanInfo(businessId: string) {
   }
 
   const planType = business.planType as PlanType;
-  const planConfig = STRIPE_PLANS[planType];
+  const planConfig = PLAN_CONFIGS[planType];
 
   // Contar recursos actuales
   const [productCount, userCount] = await Promise.all([
-    prisma.product.count({ where: { isActive: true } }),
+    prisma.product.count({ where: { isActive: true, businessId } }),
     prisma.user.count({ where: { businessId, isActive: true } }),
   ]);
 

@@ -1,37 +1,77 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { createPurchaseSchema } from "@/lib/validations/purchase";
-import { logger } from "@/lib/logger";
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { requireTenant } from "@/lib/security/tenant"
+import { purchaseSchema } from "@/lib/validation/purchase.schema"
+import { ZodError } from "zod"
+import { Prisma } from "@prisma/client"
 
 // GET /api/purchases - Listar compras
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth();
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
+    }
+    const tenant = tenantResult.tenant
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const { searchParams } = new URL(request.url)
+    const supplierId = searchParams.get("supplierId")
+    const startDate = searchParams.get("startDate")
+    const endDate = searchParams.get("endDate")
+    const search = (searchParams.get("search") || "").trim()
+
+    const where: Prisma.PurchaseWhereInput = {
+      businessId: tenant,
     }
 
-    const { searchParams } = new URL(request.url);
-    const supplierId = searchParams.get("supplierId");
-    const startDate = searchParams.get("startDate");
-    const endDate = searchParams.get("endDate");
-
-    const where: any = {};
-
     if (supplierId) {
-      where.supplierId = supplierId;
+      where.supplierId = supplierId
     }
 
     if (startDate || endDate) {
-      where.createdAt = {};
-      if (startDate) where.createdAt.gte = new Date(startDate);
+      const createdAt: Prisma.DateTimeFilter = {}
+      if (startDate) createdAt.gte = new Date(startDate)
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
+        const end = new Date(endDate)
+        end.setHours(23, 59, 59, 999)
+        createdAt.lte = end
       }
+      where.createdAt = createdAt
+    }
+
+    if (search) {
+      where.OR = [
+        {
+          supplier: {
+            name: {
+              contains: search,
+              mode: "insensitive",
+            },
+            businessId: tenant,
+          },
+        },
+        {
+          invoiceNum: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          purchaseItems: {
+            some: {
+              product: {
+                name: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+                businessId: tenant,
+              },
+            },
+          },
+        },
+      ]
     }
 
     const purchases = await prisma.purchase.findMany({
@@ -57,6 +97,7 @@ export async function GET(request: NextRequest) {
                 id: true,
                 name: true,
                 sku: true,
+                businessId: true,
               },
             },
           },
@@ -70,7 +111,7 @@ export async function GET(request: NextRequest) {
       orderBy: {
         createdAt: "desc",
       },
-    });
+    })
 
     const formattedPurchases = purchases.map((purchase) => ({
       id: purchase.id,
@@ -82,74 +123,75 @@ export async function GET(request: NextRequest) {
       tax: Number(purchase.tax),
       total: Number(purchase.total),
       itemsCount: purchase._count.purchaseItems,
-      items: purchase.purchaseItems.map((item) => ({
-        id: item.id,
-        product: item.product,
-        quantity: item.quantity,
-        cost: Number(item.cost),
-        subtotal: Number(item.subtotal),
-      })),
+      items: purchase.purchaseItems
+        .filter((item) => item.product.businessId === tenant)
+        .map((item) => ({
+          id: item.id,
+          product: {
+            id: item.product.id,
+            name: item.product.name,
+            sku: item.product.sku,
+          },
+          quantity: item.quantity,
+          cost: Number(item.cost),
+          subtotal: Number(item.subtotal),
+        })),
       createdAt: purchase.createdAt,
       updatedAt: purchase.updatedAt,
-    }));
+    }))
 
-    return NextResponse.json(formattedPurchases);
-  } catch (error: any) {
-    logger.error("Error al obtener compras:", error);
-    return NextResponse.json(
-      { error: "Error al obtener compras", details: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json(formattedPurchases)
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
 // POST /api/purchases - Crear compra y recibir mercadería
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth();
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
-    const body = await request.json();
-    const validatedData = createPurchaseSchema.parse(body);
+    const parsed = purchaseSchema.safeParse(await request.json())
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation error", details: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const validatedData = parsed.data
 
-    // Verificar que el proveedor existe
-    const supplier = await prisma.supplier.findUnique({
-      where: { id: validatedData.supplierId },
-    });
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: validatedData.supplierId, businessId: tenant },
+    })
 
     if (!supplier) {
-      return NextResponse.json(
-        { error: "Proveedor no encontrado" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 })
     }
 
-    // Verificar que todos los productos existen
-    const productIds = validatedData.items.map((item) => item.productId);
+    const productIds = validatedData.items.map((item) => item.productId)
     const products = await prisma.product.findMany({
       where: {
+        businessId: tenant,
         id: { in: productIds },
       },
-    });
+    })
 
     if (products.length !== productIds.length) {
       return NextResponse.json(
         { error: "Uno o más productos no fueron encontrados" },
-        { status: 404 }
-      );
+        { status: 404 },
+      )
     }
 
-    // Crear compra y actualizar stock en una transacción
     const purchase = await prisma.$transaction(async (tx) => {
-      const businessId = session.user.businessId;
-      if (!businessId) {
-        throw new Error("Usuario sin negocio asociado");
-      }
+      const businessId = tenant
 
-      // Resolver almacén principal para registrar stock recibido.
       let mainWarehouse = await tx.warehouse.findFirst({
         where: {
           branch: {
@@ -158,7 +200,7 @@ export async function POST(request: NextRequest) {
           isMain: true,
           isActive: true,
         },
-      });
+      })
 
       if (!mainWarehouse) {
         mainWarehouse = await tx.warehouse.findFirst({
@@ -168,7 +210,7 @@ export async function POST(request: NextRequest) {
             },
             isActive: true,
           },
-        });
+        })
       }
 
       if (!mainWarehouse) {
@@ -177,7 +219,7 @@ export async function POST(request: NextRequest) {
             businessId,
             isMain: true,
           },
-        });
+        })
 
         if (!mainBranch) {
           mainBranch = await tx.branch.create({
@@ -188,7 +230,7 @@ export async function POST(request: NextRequest) {
               isMain: true,
               isActive: true,
             },
-          });
+          })
         }
 
         mainWarehouse = await tx.warehouse.create({
@@ -199,14 +241,14 @@ export async function POST(request: NextRequest) {
             isMain: true,
             isActive: true,
           },
-        });
+        })
       }
 
-      // Crear la compra
       const newPurchase = await tx.purchase.create({
         data: {
+          businessId,
           supplierId: validatedData.supplierId,
-          userId: session.user.id,
+          userId: session!.user.id,
           warehouseId: mainWarehouse.id,
           subtotal: validatedData.subtotal,
           tax: validatedData.tax,
@@ -214,11 +256,9 @@ export async function POST(request: NextRequest) {
           invoiceNum: validatedData.invoiceNum || null,
           notes: validatedData.notes || null,
         },
-      });
+      })
 
-      // Crear los items y actualizar stock
       for (const item of validatedData.items) {
-        // Crear item de compra
         await tx.purchaseItem.create({
           data: {
             purchaseId: newPurchase.id,
@@ -227,17 +267,15 @@ export async function POST(request: NextRequest) {
             cost: item.cost,
             subtotal: item.subtotal,
           },
-        });
+        })
 
-        // Actualizar costo de referencia del producto
         await tx.product.update({
-          where: { id: item.productId },
+          where: { id: item.productId, businessId },
           data: {
-            cost: item.cost, // Actualizar costo con el último precio de compra
+            cost: item.cost,
           },
-        });
+        })
 
-        // Actualizar stock físico en ProductStock
         await tx.productStock.upsert({
           where: {
             productId_warehouseId: {
@@ -255,34 +293,26 @@ export async function POST(request: NextRequest) {
             stock: { increment: item.quantity },
             available: { increment: item.quantity },
           },
-        });
+        })
 
-        // Registrar movimiento de stock
         await tx.stockMovement.create({
           data: {
+            businessId,
             productId: item.productId,
             type: "ENTRADA",
             quantity: item.quantity,
             reason: `Compra #${newPurchase.id} - ${supplier.name}`,
             reference: newPurchase.id,
-            userId: session.user.id,
+            userId: session!.user.id,
           },
-        });
+        })
       }
 
-      return newPurchase;
-    });
+      return newPurchase
+    })
 
-    logger.info("Compra creada", {
-      purchaseId: purchase.id,
-      supplierId: validatedData.supplierId,
-      userId: session.user.id,
-      total: validatedData.total,
-    });
-
-    // Obtener la compra completa con relaciones
-    const fullPurchase = await prisma.purchase.findUnique({
-      where: { id: purchase.id },
+    const fullPurchase = await prisma.purchase.findFirst({
+      where: { id: purchase.id, businessId: tenant },
       include: {
         supplier: true,
         user: {
@@ -299,27 +329,24 @@ export async function POST(request: NextRequest) {
                 id: true,
                 name: true,
                 sku: true,
+                businessId: true,
               },
             },
           },
         },
       },
-    });
+    })
 
-    return NextResponse.json(fullPurchase, { status: 201 });
-  } catch (error: any) {
-    logger.error("Error al crear compra:", error);
-
-    if (error.name === "ZodError") {
+    return NextResponse.json(fullPurchase, { status: 201 })
+  } catch (error) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
-        { error: "Datos inválidos", details: error.errors },
-        { status: 400 }
-      );
+        { error: "Validation error", details: error.issues },
+        { status: 400 },
+      )
     }
 
-    return NextResponse.json(
-      { error: "Error al crear compra", details: error.message },
-      { status: 500 }
-    );
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

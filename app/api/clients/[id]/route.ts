@@ -3,17 +3,23 @@ import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
 import { logger } from "@/lib/logger"
 import { requirePermission } from "@/lib/auth-middleware"
+import { ClientStatus, Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { clientSchema } from "@/lib/validation/client.schema"
+import { z } from "zod"
 
-export const runtime = 'nodejs'
+export const runtime = "nodejs"
 
-// Helper para registrar actividad
+type AuditChangeValue = string | number | boolean | null
+type AuditChanges = Record<string, { from: AuditChangeValue; to: AuditChangeValue }>
+
 async function logActivity(
   clientId: string,
   action: string,
   description: string,
   userId: string,
-  metadata?: any,
-  ipAddress?: string
+  metadata?: Prisma.InputJsonValue,
+  ipAddress?: string,
 ) {
   try {
     await prisma.clientActivityLog.create({
@@ -25,136 +31,118 @@ async function logActivity(
         userId,
         metadata,
         ipAddress,
-        createdAt: new Date()
-      }
-    });
+        createdAt: new Date(),
+      },
+    })
   } catch (error) {
-    logger.error("Error logging activity:", error);
+    logger.error("Error logging activity:", error)
   }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    // Verificar permiso para ver clientes
-    const permissionCheck = await requirePermission(request, 'clients:view')
+    const permissionCheck = await requirePermission(request, "clients:view")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
-    const session = await auth();
-    
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    const { id } = await params;
+    const { id } = await params
 
     const client = await prisma.client.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
+        businessId: tenant,
       },
       include: {
         sales: {
-          orderBy: { createdAt: 'desc' },
-          take: 10
+          where: { businessId: tenant },
+          orderBy: { createdAt: "desc" },
+          take: 10,
         },
         payments: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 10,
           include: {
             user: {
               select: {
                 name: true,
-                email: true
-              }
-            }
-          }
+                email: true,
+              },
+            },
+          },
         },
         activityLogs: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 20,
           include: {
             user: {
               select: {
                 name: true,
-                email: true
-              }
-            }
-          }
-        }
-      }
-    });
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    })
 
     if (!client) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
 
-    // Calcular métricas (solo ventas completadas)
     const salesMetrics = await prisma.sale.aggregate({
-      where: { 
+      where: {
         clientId: id,
-        status: 'COMPLETADO'
+        businessId: tenant,
+        status: "COMPLETADO",
       },
       _sum: { total: true },
-      _count: true
-    });
+      _count: true,
+    })
 
     return NextResponse.json({
       ...client,
       totalPurchased: salesMetrics._sum.total || 0,
       purchaseCount: salesMetrics._count,
-      averageTicket: salesMetrics._count > 0 
-        ? Number(salesMetrics._sum.total) / salesMetrics._count 
-        : 0
-    });
+      averageTicket: salesMetrics._count > 0 ? Number(salesMetrics._sum.total) / salesMetrics._count : 0,
+    })
   } catch (error) {
-    logger.error("Error fetching client:", error);
-    return NextResponse.json({ error: "Error al cargar cliente" }, { status: 500 });
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    // Verificar permiso para editar clientes
-    const permissionCheck = await requirePermission(request, 'clients:edit')
+    const permissionCheck = await requirePermission(request, "clients:edit")
     if (!permissionCheck.authorized) {
       return permissionCheck.response
     }
 
-    const { id } = await params;
-    const session = await auth();
-    
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    const { id } = await params
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
+
+    const body = await request.json()
+    const parsed = clientSchema.partial().safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation error", details: parsed.error.issues },
+        { status: 400 },
+      )
     }
 
-    const body = await request.json();
-    const {
-      name,
-      email,
-      phone,
-      address,
-      taxId,
-      notes,
-      tags,
-      creditLimit,
-      hasCreditAccount,
-      status,
-      isActive
-    } = body;
-
-    // Verificar que el cliente pertenece al negocio
     const existingClient = await prisma.client.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
+        businessId: tenant,
       },
       select: {
         name: true,
@@ -167,115 +155,121 @@ export async function PUT(
         creditLimit: true,
         hasCreditAccount: true,
         status: true,
-        isActive: true
-      }
-    });
+        isActive: true,
+      },
+    })
 
     if (!existingClient) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
 
-    // Registrar cambios para auditoría
-    const changes: any = {};
-    if (name !== existingClient.name) changes.name = { from: existingClient.name, to: name };
-    if (email !== existingClient.email) changes.email = { from: existingClient.email, to: email };
-    if (phone !== existingClient.phone) changes.phone = { from: existingClient.phone, to: phone };
+    const {
+      name,
+      email,
+      phone,
+      address,
+      taxId,
+      notes,
+      tags,
+      creditLimit,
+      hasCreditAccount,
+      status,
+      isActive,
+    } = parsed.data
+
+    const changes: AuditChanges = {}
+    if (name !== undefined && name !== existingClient.name) changes.name = { from: existingClient.name, to: name }
+    if (email !== undefined && email !== existingClient.email)
+      changes.email = { from: existingClient.email ?? null, to: email ?? null }
+    if (phone !== undefined && phone !== existingClient.phone)
+      changes.phone = { from: existingClient.phone ?? null, to: phone ?? null }
     if (creditLimit !== undefined && Number(creditLimit) !== Number(existingClient.creditLimit)) {
-      changes.creditLimit = { from: existingClient.creditLimit.toString(), to: creditLimit.toString() };
+      changes.creditLimit = { from: Number(existingClient.creditLimit), to: Number(creditLimit) }
     }
     if (hasCreditAccount !== undefined && hasCreditAccount !== existingClient.hasCreditAccount) {
-      changes.hasCreditAccount = { from: existingClient.hasCreditAccount, to: hasCreditAccount };
+      changes.hasCreditAccount = { from: existingClient.hasCreditAccount, to: hasCreditAccount }
     }
-    if (status && status !== existingClient.status) {
-      changes.status = { from: existingClient.status, to: status };
+    if (status !== undefined && status !== existingClient.status) {
+      changes.status = { from: existingClient.status, to: status as ClientStatus }
     }
 
-    const updateData: any = {
-      updatedAt: new Date()
-    };
+    const updateData: Prisma.ClientUpdateInput = {
+      updatedAt: new Date(),
+    }
 
-    if (name) updateData.name = name;
-    if (email !== undefined) updateData.email = email || null;
-    if (phone !== undefined) updateData.phone = phone || null;
-    if (address !== undefined) updateData.address = address || null;
-    if (taxId !== undefined) updateData.taxId = taxId || null;
-    if (notes !== undefined) updateData.notes = notes || null;
-    if (tags !== undefined) updateData.tags = tags;
-    if (creditLimit !== undefined) updateData.creditLimit = creditLimit;
-    if (hasCreditAccount !== undefined) updateData.hasCreditAccount = hasCreditAccount;
-    if (status !== undefined) updateData.status = status;
-    if (isActive !== undefined) updateData.isActive = isActive;
+    if (name !== undefined) updateData.name = name
+    if (email !== undefined) updateData.email = email || null
+    if (phone !== undefined) updateData.phone = phone || null
+    if (address !== undefined) updateData.address = address || null
+    if (taxId !== undefined) updateData.taxId = taxId || null
+    if (notes !== undefined) updateData.notes = notes || null
+    if (tags !== undefined) updateData.tags = tags
+    if (creditLimit !== undefined) updateData.creditLimit = creditLimit
+    if (hasCreditAccount !== undefined) updateData.hasCreditAccount = hasCreditAccount
+    if (status !== undefined) updateData.status = status as ClientStatus
+    if (isActive !== undefined) updateData.isActive = isActive
 
     const updatedClient = await prisma.client.update({
       where: { id },
-      data: updateData
-    });
+      data: updateData,
+    })
 
-    // Registrar actividad
-    const ipAddress = request.headers.get('x-forwarded-for') || 
-                     request.headers.get('x-real-ip') || 
-                     'unknown';
+    const ipAddress = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "unknown"
 
     await logActivity(
       id,
-      'UPDATE',
-      `Cliente actualizado por ${session.user.email}`,
-      session.user.id,
-      changes,
-      ipAddress
-    );
+      "UPDATE",
+      `Cliente actualizado por ${session!.user.email}`,
+      session!.user.id,
+      changes as Prisma.InputJsonValue,
+      ipAddress,
+    )
 
-    return NextResponse.json(updatedClient);
+    return NextResponse.json(updatedClient)
   } catch (error) {
-    logger.error("Error updating client:", error);
-    return NextResponse.json({ error: "Error al actualizar cliente" }, { status: 500 });
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await params;
-    const session = await auth();
-    
-    if (!session?.user?.businessId || !session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const { id } = await params
+    const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
+    const tenant = tenantResult.tenant
 
-    // Verificar que el cliente pertenece al negocio
     const client = await prisma.client.findFirst({
       where: {
         id,
-        businessId: session.user.businessId
+        businessId: tenant,
       },
       include: {
         _count: {
-          select: { sales: true }
-        }
-      }
-    });
+          select: { sales: true },
+        },
+      },
+    })
 
     if (!client) {
-      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+      return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 })
     }
 
-    // No permitir eliminar clientes con ventas
     if (client._count.sales > 0) {
       return NextResponse.json(
         { error: "No se puede eliminar un cliente con ventas registradas" },
-        { status: 400 }
-      );
+        { status: 400 },
+      )
     }
 
     await prisma.client.delete({
-      where: { id }
-    });
+      where: { id },
+    })
 
-    return NextResponse.json({ message: "Cliente eliminado" });
+    return NextResponse.json({ message: "Cliente eliminado" })
   } catch (error) {
-    logger.error("Error deleting client:", error);
-    return NextResponse.json({ error: "Error al eliminar cliente" }, { status: 500 });
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

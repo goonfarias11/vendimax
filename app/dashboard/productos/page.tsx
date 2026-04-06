@@ -81,10 +81,26 @@ export default function ProductosPage() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch("/api/products");
+      const response = await fetch("/api/products", { credentials: "include" });
+
+      if (response.status === 401) {
+        toast.error("Tu sesión expiró. Vuelve a iniciar sesión.");
+        router.push(`/login?next=${encodeURIComponent("/dashboard/productos")}`);
+        setProducts([]);
+        setLoading(false);
+        return;
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage = errorData.error || "Error al cargar productos";
+        // Si el usuario no tiene negocio asignado, mostramos aviso y no lanzamos excepción
+        if (errorMessage.toLowerCase().includes("sin negocio asignado")) {
+          toast.warning("No tienes un negocio asignado. Pídele al admin que te asigne uno.");
+          setProducts([]);
+          setLoading(false);
+          return;
+        }
         throw new Error(errorMessage);
       }
       const data = await response.json();
@@ -107,7 +123,12 @@ export default function ProductosPage() {
 
   const fetchCategories = async () => {
     try {
-      const response = await fetch("/api/categories");
+      const response = await fetch("/api/categories", { credentials: "include" });
+      if (response.status === 401) {
+        router.push(`/login?next=${encodeURIComponent("/dashboard/productos")}`);
+        setCategories([]);
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
         setCategories(data);
@@ -147,8 +168,10 @@ export default function ProductosPage() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Error al guardar producto");
+        const error = await response.json().catch(() => ({}));
+        const message = error.error || "Error al guardar producto";
+        toast.error(message);
+        return;
       }
 
       toast.success(

@@ -1,0 +1,7 @@
+[dev-nofork] starting server...
+   ▲ Next.js 16.0.7 (webpack)
+   - Local:         http://localhost:3001
+   - Network:       http://0.0.0.0:3001
+   - Environments: .env.local, .env
+
+ ✓ Starting...

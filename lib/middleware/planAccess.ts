@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 // import { getUpgradeRecommendation } from "@/lib/planAccessControl"; // TODO: Implementar función
 
 // Stub temporal
-async function getUpgradeRecommendation(businessId: string) {
+async function getUpgradeRecommendation() {
   return "Actualiza tu plan para continuar";
 }
 
@@ -49,7 +49,7 @@ export async function checkPlanLimit(
   allowed: boolean;
   currentUsage: number;
   limit: number;
-  recommendation?: any;
+  recommendation?: unknown;
   error?: string;
 }> {
   try {
@@ -82,7 +82,7 @@ export async function checkPlanLimit(
     switch (limitType) {
       case "products":
         currentUsage = await prisma.product.count({
-          where: { isActive: true },
+          where: { isActive: true, businessId },
         });
         break;
 
@@ -133,7 +133,7 @@ export async function checkPlanLimit(
         },
       });
 
-      const recommendation = await getUpgradeRecommendation(businessId);
+      const recommendation = await getUpgradeRecommendation();
 
       return {
         allowed: false,
@@ -146,7 +146,7 @@ export async function checkPlanLimit(
 
     // Advertencia al 80%
     if (futureUsage >= limit * 0.8) {
-      const recommendation = await getUpgradeRecommendation(businessId);
+      const recommendation = await getUpgradeRecommendation();
       return {
         allowed: true,
         currentUsage,
@@ -160,7 +160,7 @@ export async function checkPlanLimit(
       currentUsage,
       limit,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[checkPlanLimit]", error);
     return {
       allowed: true, // En caso de error, permitir para no romper el sistema
@@ -173,7 +173,7 @@ export async function checkPlanLimit(
 export async function checkSubscriptionStatus(businessId: string): Promise<{
   active: boolean;
   reason?: string;
-  recommendation?: any;
+  recommendation?: unknown;
 }> {
   try {
     const business = await prisma.business.findUnique({
@@ -229,7 +229,7 @@ export async function checkSubscriptionStatus(businessId: string): Promise<{
           },
         });
 
-        const recommendation = await getUpgradeRecommendation(businessId);
+        const recommendation = await getUpgradeRecommendation();
         return {
           active: false,
           reason: "Tu suscripción no está activa. Actualiza tu pago para continuar.",
@@ -247,7 +247,7 @@ export async function checkSubscriptionStatus(businessId: string): Promise<{
           },
         });
 
-        const recommendation = await getUpgradeRecommendation(businessId);
+        const recommendation = await getUpgradeRecommendation();
         return {
           active: false,
           reason: "Tu suscripción ha vencido. Renueva tu plan para continuar.",
@@ -263,7 +263,7 @@ export async function checkSubscriptionStatus(businessId: string): Promise<{
       active: false,
       reason: "No tienes una suscripción activa",
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[checkSubscriptionStatus]", error);
     return { active: true }; // Permitir en caso de error
   }

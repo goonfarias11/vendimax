@@ -1,19 +1,20 @@
 import { NextResponse, NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth } from "@/lib/auth"
-import { createClientSchema } from "@/lib/validations"
 import { apiRateLimit } from "@/lib/rateLimit"
 import { logger } from "@/lib/logger"
+import { ClientStatus, Prisma } from "@prisma/client"
+import { requireTenant } from "@/lib/security/tenant"
+import { clientSchema } from "@/lib/validation/client.schema"
+import { z } from "zod"
 
 export const runtime = 'nodejs'
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth();
-    
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "Usuario sin negocio asignado" }, { status: 401 });
-    }
+    const tenantResult = await requireTenant(session);
+    if (!tenantResult.authorized) return tenantResult.response;
 
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
@@ -24,8 +25,8 @@ export async function GET(request: NextRequest) {
     const exceedsLimit = searchParams.get('exceedsLimit') === 'true';
     const tags = searchParams.get('tags')?.split(',').filter(Boolean) || [];
 
-    const where: any = {
-      businessId: session.user.businessId
+    const where: Prisma.ClientWhereInput = {
+      businessId: tenantResult.tenant
     };
 
     // Filtros
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      where.status = status;
+      where.status = status as ClientStatus;
     }
 
     if (hasDebt) {
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
       clients.map(async (client) => {
         const salesData = await prisma.sale.aggregate({
           where: { 
+            businessId: tenantResult.tenant,
             clientId: client.id,
             status: 'COMPLETADO'
           },
@@ -121,8 +123,8 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    logger.error("Error fetching clients:", error);
-    return NextResponse.json({ error: "Error al cargar clientes" }, { status: 500 });
+    console.error("[API ERROR]", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -140,24 +142,18 @@ export async function POST(request: NextRequest) {
     }
 
     const session = await auth()
-    if (!session?.user?.businessId) {
-      return NextResponse.json({ error: "Usuario sin negocio asignado" }, { status: 401 })
-    }
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
 
     const body = await request.json()
 
     // Validación con Zod
-    const result = createClientSchema.safeParse(body)
-    
+    const result = clientSchema.safeParse(body)
     if (!result.success) {
-      const firstError = result.error.issues[0]
       return NextResponse.json(
         { 
-          error: firstError.message,
-          details: result.error.issues.map(e => ({
-            field: e.path.join('.'),
-            message: e.message
-          }))
+          error: "Validation error",
+          details: result.error.issues
         },
         { status: 400 }
       )
@@ -171,15 +167,20 @@ export async function POST(request: NextRequest) {
         email: email?.trim() || null,
         phone: phone?.trim() || null,
         address: address?.trim() || null,
-        businessId: session.user.businessId
+        businessId: tenantResult.tenant
       }
     })
 
     return NextResponse.json(client, { status: 201 })
-  } catch (error: any) {
-    logger.error("Error creating client:", error)
+  } catch (error) {
+    console.error("[API ERROR]", error)
+
+    const errorCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: string }).code
+        : undefined
     
-    if (error.code === 'P2002') {
+    if (errorCode === 'P2002') {
       return NextResponse.json(
         { error: "Ya existe un cliente con ese email" },
         { status: 409 }
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: "Error al crear el cliente" },
+      { error: "Internal server error" },
       { status: 500 }
     )
   }

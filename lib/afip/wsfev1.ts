@@ -9,12 +9,27 @@ import type {
   AfipConfig, 
   AfipInvoiceRequest, 
   AfipInvoiceResponse,
-  AfipLastVoucherResponse,
   AfipPointOfSaleInfo,
   AfipVoucherType,
-  AfipDocumentType,
-  AfipConceptType
+  AfipDocumentType
 } from './types'
+
+type AfipErrorEntry = {
+  Code?: string[]
+  Msg?: string[]
+}
+
+type AfipPointOfSaleEntry = {
+  Nro?: string[]
+  EmisionTipo?: string[]
+  Bloqueado?: string[]
+  FchBaja?: string[]
+}
+
+type AfipCatalogEntry = {
+  Id?: string[]
+  Desc?: string[]
+}
 
 const WSFEV1_URL_PROD = 'https://servicios1.afip.gov.ar/wsfev1/service.asmx'
 const WSFEV1_URL_TEST = 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx'
@@ -110,16 +125,15 @@ export class WSFEv1Client {
 
     const caeSolicitarResult = result['soap:Envelope']['soap:Body'][0]['FECAESolicitarResponse'][0]['FECAESolicitarResult'][0]
     
-    const feCabResp = caeSolicitarResult['FeCabResp'][0]
     const feDetResp = caeSolicitarResult['FeDetResp'][0]['FECAEDetResponse'][0]
 
     // Verificar si hay errores
     if (caeSolicitarResult['Errors']) {
-      const errors = caeSolicitarResult['Errors'][0]['Err'].map((err: any) => ({
-        code: parseInt(err['Code'][0]),
-        message: err['Msg'][0],
+      const errors = (caeSolicitarResult['Errors'][0]['Err'] as AfipErrorEntry[]).map((err) => ({
+        code: parseInt(err['Code']?.[0] ?? '0'),
+        message: err['Msg']?.[0] ?? 'Error desconocido',
       }))
-      throw new Error(`Error AFIP: ${errors.map((e: any) => e.message).join(', ')}`)
+      throw new Error(`Error AFIP: ${errors.map((e) => e.message).join(', ')}`)
     }
 
     return {
@@ -127,9 +141,9 @@ export class WSFEv1Client {
       caeDueDate: feDetResp['CAEFchVto']?.[0] || '',
       voucherNumber: parseInt(feDetResp['CbteDesde']?.[0] || '0'),
       result: feDetResp['Resultado']?.[0] || 'R',
-      observations: feDetResp['Observaciones']?.[0]?.['Obs']?.map((obs: any) => ({
-        code: parseInt(obs['Code'][0]),
-        message: obs['Msg'][0],
+      observations: (feDetResp['Observaciones']?.[0]?.['Obs'] as AfipErrorEntry[] | undefined)?.map((obs) => ({
+        code: parseInt(obs['Code']?.[0] ?? '0'),
+        message: obs['Msg']?.[0] ?? 'Observacion',
       })),
     }
   }
@@ -145,10 +159,10 @@ export class WSFEv1Client {
 
     const ptosVenta = result['soap:Envelope']['soap:Body'][0]['FEParamPtosVentaResponse'][0]['FEParamPtosVentaResult'][0]['ResultGet'][0]['PtoVenta']
 
-    return ptosVenta.map((pto: any) => ({
-      number: parseInt(pto['Nro'][0]),
-      emissionType: pto['EmisionTipo'][0],
-      blocked: pto['Bloqueado'][0] === 'S',
+    return (ptosVenta as AfipPointOfSaleEntry[]).map((pto) => ({
+      number: parseInt(pto['Nro']?.[0] ?? '0'),
+      emissionType: pto['EmisionTipo']?.[0] ?? '',
+      blocked: pto['Bloqueado']?.[0] === 'S',
       dropDate: pto['FchBaja']?.[0],
     }))
   }
@@ -164,10 +178,10 @@ export class WSFEv1Client {
 
     const tipos = result['soap:Envelope']['soap:Body'][0]['FEParamTiposCbteResponse'][0]['FEParamTiposCbteResult'][0]['ResultGet'][0]['CbteTipo']
 
-    return tipos.map((tipo: any) => ({
-      code: parseInt(tipo['Id'][0]),
-      name: tipo['Desc'][0],
-      description: tipo['Desc'][0],
+    return (tipos as AfipCatalogEntry[]).map((tipo) => ({
+      code: parseInt(tipo['Id']?.[0] ?? '0'),
+      name: tipo['Desc']?.[0] ?? '',
+      description: tipo['Desc']?.[0] ?? '',
     }))
   }
 
@@ -182,16 +196,16 @@ export class WSFEv1Client {
 
     const tipos = result['soap:Envelope']['soap:Body'][0]['FEParamTiposDocResponse'][0]['FEParamTiposDocResult'][0]['ResultGet'][0]['DocTipo']
 
-    return tipos.map((tipo: any) => ({
-      code: parseInt(tipo['Id'][0]),
-      name: tipo['Desc'][0],
+    return (tipos as AfipCatalogEntry[]).map((tipo) => ({
+      code: parseInt(tipo['Id']?.[0] ?? '0'),
+      name: tipo['Desc']?.[0] ?? '',
     }))
   }
 
   /**
    * Construye una solicitud SOAP
    */
-  private buildSOAPRequest(method: string, auth: AfipAuth, params: any): string {
+  private buildSOAPRequest(method: string, auth: AfipAuth, params: Record<string, unknown>): string {
     const paramsXml = this.objectToXml(params)
 
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -213,20 +227,24 @@ export class WSFEv1Client {
   /**
    * Convierte un objeto a XML
    */
-  private objectToXml(obj: any, parentKey?: string): string {
+  private objectToXml(obj: Record<string, unknown>, parentKey?: string): string {
     let xml = ''
 
     for (const [key, value] of Object.entries(obj)) {
       if (value === null || value === undefined) continue
 
       if (typeof value === 'object' && !Array.isArray(value)) {
-        xml += `<ar:${key}>${this.objectToXml(value)}</ar:${key}>`
+        xml += `<ar:${key}>${this.objectToXml(value as Record<string, unknown>)}</ar:${key}>`
       } else if (Array.isArray(value)) {
         for (const item of value) {
-          xml += this.objectToXml(item, key)
+          if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+            xml += this.objectToXml(item as Record<string, unknown>, key)
+          } else {
+            xml += `<ar:${key}>${String(item)}</ar:${key}>`
+          }
         }
       } else {
-        xml += `<ar:${parentKey || key}>${value}</ar:${parentKey || key}>`
+        xml += `<ar:${parentKey || key}>${String(value)}</ar:${parentKey || key}>`
       }
     }
 

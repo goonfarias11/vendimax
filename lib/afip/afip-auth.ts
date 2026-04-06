@@ -10,7 +10,6 @@ import { parseStringPromise } from 'xml2js'
 import type {
   AfipCredentials,
   AfipConfig,
-  WSAALoginTicketRequest,
   WSAALoginTicketResponse,
 } from './types'
 
@@ -103,8 +102,13 @@ async function callWSAA(cms: string, config: AfipConfig): Promise<WSAALoginTicke
       sign: credentials.loginTicketResponse.credentials.sign,
       expirationTime: credentials.loginTicketResponse.header.expirationTime,
     }
-  } catch (error: any) {
-    console.error('Error llamando a WSAA:', error.response?.data || error.message)
+  } catch (error: unknown) {
+    const details = axios.isAxiosError(error)
+      ? error.response?.data ?? error.message
+      : error instanceof Error
+        ? error.message
+        : 'Error desconocido'
+    console.error('Error llamando a WSAA:', details)
     throw new Error('Error obteniendo credenciales de AFIP')
   }
 }

@@ -1,38 +1,25 @@
 /**
- * API para salir del modo impersonation
- */
-
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
-
-export const runtime = 'nodejs'
-
-/**
  * POST /api/users/stop-impersonate
- * Permite a un ADMIN salir del modo impersonation
  */
-export async function POST(request: NextRequest) {
+
+import { NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { requireTenant } from "@/lib/security/tenant"
+
+export const runtime = "nodejs"
+
+export async function POST() {
   try {
     const session = await auth()
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) return tenantResult.response
 
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: "No autorizado" },
-        { status: 401 }
-      )
-    }
-
-    // El cliente se encargará de limpiar los datos de impersonation
     return NextResponse.json({
       success: true,
-      message: "Modo impersonation desactivado"
+      message: "Modo impersonation desactivado",
     })
-
   } catch (error) {
-    console.error("Error al salir de impersonation:", error)
-    return NextResponse.json(
-      { error: "Error al salir del modo impersonation" },
-      { status: 500 }
-    )
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

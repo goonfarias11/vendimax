@@ -1,151 +1,178 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { BarChart3, ShoppingBag, TrendingUp, Package } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { type ReactNode } from "react";
+import { DollarSign, ShoppingCart, TrendingUp, Package } from "lucide-react";
+import Link from "next/link";
+
+type KPI = {
+  title: string;
+  value: string;
+  sub: string;
+  icon: ReactNode;
+};
+
+const kpis: KPI[] = [
+  {
+    title: "Ventas Hoy",
+    value: "$12.340",
+    sub: "18 tickets",
+    icon: <DollarSign className="h-5 w-5 text-slate-500" />,
+  },
+  {
+    title: "Total del Mes",
+    value: "$240.000",
+    sub: "Ventas acumuladas",
+    icon: <TrendingUp className="h-5 w-5 text-slate-500" />,
+  },
+  {
+    title: "Tickets Hoy",
+    value: "18",
+    sub: "Promedio $685",
+    icon: <ShoppingCart className="h-5 w-5 text-slate-500" />,
+  },
+  {
+    title: "Stock Bajo",
+    value: "7",
+    sub: "Requiere reposicion",
+    icon: <Package className="h-5 w-5 text-slate-500" />,
+  },
+];
+
+const ultimasVentas = [
+  { id: "D-1045", cliente: "Cliente demo", fecha: "17/3, 08:14 p. m.", items: 3 },
+  { id: "D-1044", cliente: "Cliente demo", fecha: "17/3, 08:00 p. m.", items: 5 },
+  { id: "D-1043", cliente: "Anonimo", fecha: "17/3, 07:32 p. m.", items: 2 },
+  { id: "D-1042", cliente: "Anonimo", fecha: "17/3, 06:58 p. m.", items: 1 },
+  { id: "D-1041", cliente: "Cliente demo", fecha: "17/3, 06:15 p. m.", items: 4 },
+];
+
+const topProductos = [
+  { producto: "Combo demo A", vendidos: 42, total: "$58.800" },
+  { producto: "Bebida demo", vendidos: 37, total: "$33.300" },
+  { producto: "Snack demo", vendidos: 28, total: "$22.400" },
+];
 
 export function DashboardDemo() {
   return (
-    <section id="demo" className="py-20 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="text-center mb-16"
-        >
-          <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            Vista previa del Dashboard
-          </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Una interfaz limpia y moderna para gestionar tu negocio
-          </p>
-        </motion.div>
+    <section id="demo" className="py-16 px-4 sm:px-6 lg:px-8 bg-slate-50">
+      <div className="max-w-6xl mx-auto space-y-10">
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+            Demo
+            <span className="text-slate-500 font-medium">No mostramos datos reales</span>
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold text-slate-900">Dashboard</h2>
+          <p className="text-slate-600">Resumen de tu negocio en tiempo real (datos de ejemplo)</p>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5 }}
-          className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-8 shadow-2xl"
-        >
-          <div className="bg-white rounded-xl p-6">
-            {/* Header del dashboard */}
-            <div className="flex items-center justify-between mb-6 pb-4 border-b">
-              <h3 className="text-2xl font-bold text-gray-900">Dashboard</h3>
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-full bg-gray-200" />
+        {/* KPIs */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {kpis.map((kpi) => (
+            <div
+              key={kpi.title}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-5 shadow-sm flex items-center justify-between"
+            >
+              <div>
+                <p className="text-sm text-slate-500">{kpi.title}</p>
+                <p className="text-2xl font-semibold text-slate-900 mt-1">{kpi.value}</p>
+                <p className="text-sm text-emerald-600 mt-1">{kpi.sub}</p>
               </div>
+              <div className="h-10 w-10 rounded-lg bg-slate-100 flex items-center justify-center">{kpi.icon}</div>
             </div>
+          ))}
+        </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Ventas Hoy
-                  </CardTitle>
-                  <ShoppingBag className="h-4 w-4 text-gray-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-gray-900">$12,345</div>
-                  <p className="text-xs text-green-600 mt-1">+20.1% vs ayer</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Pedidos
-                  </CardTitle>
-                  <BarChart3 className="h-4 w-4 text-gray-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-gray-900">145</div>
-                  <p className="text-xs text-green-600 mt-1">+12% vs ayer</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Productos
-                  </CardTitle>
-                  <Package className="h-4 w-4 text-gray-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-gray-900">892</div>
-                  <p className="text-xs text-gray-500 mt-1">En inventario</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Crecimiento
-                  </CardTitle>
-                  <TrendingUp className="h-4 w-4 text-gray-600" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold text-gray-900">+34%</div>
-                  <p className="text-xs text-green-600 mt-1">Este mes</p>
-                </CardContent>
-              </Card>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* Ultimas ventas */}
+          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-slate-900">Ultimas Ventas</h3>
+              <Link href="#" className="text-sm font-semibold text-primary hover:underline">
+                Ver todas
+              </Link>
             </div>
-
-            {/* Chart Area */}
-            <div className="grid lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Ventas de la Semana</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="h-64 bg-gradient-to-t from-blue-50 to-transparent rounded-lg flex items-end justify-around p-4">
-                    {[40, 70, 50, 90, 60, 85, 75].map((height, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ height: 0 }}
-                        whileInView={{ height: `${height}%` }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.5, delay: i * 0.1 }}
-                        className="w-12 bg-blue-500 rounded-t-lg"
-                      />
-                    ))}
-                  </div>
-                  <div className="flex justify-around mt-2 text-xs text-gray-600">
-                    {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((day) => (
-                      <span key={day}>{day}</span>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Productos Más Vendidos</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {[
-                      { name: 'Producto A', sales: 234, color: 'bg-blue-500' },
-                      { name: 'Producto B', sales: 189, color: 'bg-green-500' },
-                      { name: 'Producto C', sales: 156, color: 'bg-purple-500' },
-                      { name: 'Producto D', sales: 123, color: 'bg-orange-500' },
-                    ].map((product, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${product.color}`} />
-                        <span className="text-sm text-gray-700 flex-grow">{product.name}</span>
-                        <span className="text-sm font-semibold text-gray-900">{product.sales}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm text-slate-700">
+                <thead>
+                  <tr className="text-left text-slate-500 border-b border-slate-200">
+                    <th className="py-2">ID</th>
+                    <th className="py-2">Cliente</th>
+                    <th className="py-2">Fecha</th>
+                    <th className="py-2 text-right pr-2">Items</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ultimasVentas.map((venta) => (
+                    <tr key={venta.id} className="border-b border-slate-100 last:border-none">
+                      <td className="py-2">{venta.id}</td>
+                      <td className="py-2">{venta.cliente}</td>
+                      <td className="py-2">{venta.fecha}</td>
+                      <td className="py-2 text-right pr-2">{venta.items}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        </motion.div>
+
+          {/* Top productos */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-slate-900">Productos Mas Vendidos</h3>
+              <Link href="#" className="text-sm font-semibold text-primary hover:underline">
+                Ver reportes
+              </Link>
+            </div>
+            <table className="w-full text-sm text-slate-700">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-200">
+                  <th className="py-2">Producto</th>
+                  <th className="py-2">Vendidos</th>
+                  <th className="py-2 text-right pr-2">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topProductos.map((p) => (
+                  <tr key={p.producto} className="border-b border-slate-100 last:border-none">
+                    <td className="py-2">{p.producto}</td>
+                    <td className="py-2">{p.vendidos}</td>
+                    <td className="py-2 text-right pr-2">{p.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Acciones rapidas */}
+        <div className="grid gap-3 md:grid-cols-3">
+          <CTA
+            href="/dashboard/ventas/nueva"
+            title="Nueva Venta"
+            subtitle="Registrar una venta rapida"
+            color="bg-blue-600"
+          />
+          <CTA
+            href="/dashboard/productos"
+            title="Gestionar Productos"
+            subtitle="Ver y actualizar inventario"
+            color="bg-blue-700"
+          />
+          <CTA href="/dashboard/mi-caja" title="Mi Caja" subtitle="Gestionar mi turno de caja" color="bg-emerald-600" />
+        </div>
       </div>
     </section>
+  );
+}
+
+function CTA({ href, title, subtitle, color }: { href: string; title: string; subtitle: string; color: string }) {
+  return (
+    <Link
+      href={href}
+      className={`${color} text-white rounded-xl px-5 py-5 shadow-sm hover:opacity-95 transition`}
+    >
+      <div className="text-xl font-semibold mb-1">{title}</div>
+      <div className="text-sm text-white/80">{subtitle}</div>
+    </Link>
   );
 }

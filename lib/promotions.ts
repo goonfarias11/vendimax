@@ -35,6 +35,12 @@ export interface AppliedPromotion {
   affectedItems: string[]
 }
 
+interface PromotionMeta {
+  id: string
+  name: string
+  type: string
+}
+
 export class PromotionService {
   /**
    * Evalúa todas las promociones activas para un carrito
@@ -71,7 +77,11 @@ export class PromotionService {
 
       // Evaluar si se cumple la condición
       if (this.meetsCondition(cart, conditions)) {
-        const applied = this.applyDiscount(cart, discount, promotion)
+        const applied = this.applyDiscount(cart, discount, {
+          id: promotion.id,
+          name: promotion.name,
+          type: promotion.type,
+        })
         if (applied) {
           appliedPromotions.push(applied)
         }
@@ -134,7 +144,7 @@ export class PromotionService {
   private applyDiscount(
     cart: CartItem[],
     discount: PromotionDiscount,
-    promotion: any
+    promotion: PromotionMeta
   ): AppliedPromotion | null {
     const affectedItems: string[] = []
     let discountAmount = 0

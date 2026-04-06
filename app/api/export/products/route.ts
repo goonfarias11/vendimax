@@ -3,29 +3,29 @@
  * GET /api/export/products - Exporta productos en formato Excel
  */
 
-import { NextRequest, NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { excelExportService } from '@/lib/export/excel'
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
+import { prisma } from "@/lib/prisma"
+import { excelExportService } from "@/lib/export/excel"
+import { requireTenant } from "@/lib/security/tenant"
 
 export async function GET(request: NextRequest) {
   try {
     const session = await auth()
-
-    if (!session?.user) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    const tenantResult = await requireTenant(session)
+    if (!tenantResult.authorized) {
+      return tenantResult.response
     }
+    const tenant = tenantResult.tenant
 
     const { searchParams } = new URL(request.url)
-    const categoryId = searchParams.get('categoryId')
-    const activeOnly = searchParams.get('activeOnly') === 'true'
-    const lowStock = searchParams.get('lowStock') === 'true'
+    const categoryId = searchParams.get("categoryId")
+    const activeOnly = searchParams.get("activeOnly") === "true"
+    const lowStock = searchParams.get("lowStock") === "true"
 
-    // Obtener productos
     const products = await prisma.product.findMany({
       where: {
-        businessId: session.user.businessId!,
+        businessId: tenant,
         ...(categoryId && { categoryId }),
         ...(activeOnly && { isActive: true }),
       },
@@ -39,49 +39,61 @@ export async function GET(request: NextRequest) {
           productStocks: {
             select: {
               stock: true,
+              warehouse: {
+                select: {
+                  branch: {
+                    select: {
+                      businessId: true,
+                    },
+                  },
+                },
+              },
             },
           },
         }),
       },
       orderBy: {
-        name: 'asc',
+        name: "asc",
       },
     })
 
-    // Filtrar por stock bajo si se solicita (comparar suma de stock con minStock)
     const filteredProducts = lowStock
-      ? products.filter(p => {
-          const totalStock = p.productStocks?.reduce((sum, ps) => sum + ps.stock, 0) || 0
+      ? products.filter((p) => {
+          const totalStock =
+            (p.productStocks as Array<{
+              stock: number
+              warehouse?: { branch?: { businessId?: string } }
+            }> | undefined)
+              ?.reduce((sum, ps) => {
+                const belongsToTenant =
+                  ps.warehouse?.branch?.businessId === undefined ||
+                  ps.warehouse?.branch?.businessId === tenant
+                return belongsToTenant ? sum + ps.stock : sum
+              }, 0) || 0
           return totalStock <= p.minStock || totalStock === 0
         })
       : products
 
-    // Obtener información del negocio
     const business = await prisma.business.findUnique({
-      where: { id: session.user.businessId! },
+      where: { id: tenant },
     })
 
     if (!business) {
-      return NextResponse.json({ error: 'Negocio no encontrado' }, { status: 404 })
+      return NextResponse.json({ error: "Negocio no encontrado" }, { status: 404 })
     }
 
-    // Generar Excel
     const buffer = await excelExportService.exportProducts(filteredProducts, business)
 
-    // Nombre del archivo
-    const filename = `productos_${new Date().toISOString().split('T')[0]}.xlsx`
+    const filename = `productos_${new Date().toISOString().split("T")[0]}.xlsx`
 
     return new NextResponse(buffer as unknown as BodyInit, {
       headers: {
-        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
       },
     })
-  } catch (error: any) {
-    console.error('Error al exportar productos:', error)
-    return NextResponse.json(
-      { error: error.message || 'Error al exportar productos' },
-      { status: 500 }
-    )
+  } catch (error) {
+    console.error("[API ERROR]", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

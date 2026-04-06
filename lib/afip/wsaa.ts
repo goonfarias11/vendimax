@@ -3,7 +3,6 @@
  * Gestiona la autenticación con AFIP para obtener tokens de acceso
  */
 
-import { sign } from 'jsonwebtoken'
 import { parseStringPromise } from 'xml2js'
 import type { AfipConfig, AfipAuth } from './types'
 
