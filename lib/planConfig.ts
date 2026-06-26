@@ -12,6 +12,20 @@ export const PLAN_CONFIGS = {
       invoicing: false,
     },
   },
+  // BASICO es el plan por defecto en el schema de Prisma
+  BASICO: {
+    name: 'Plan Básico',
+    price: 0,
+    features: {
+      maxProducts: 100,
+      maxSales: 50,
+      maxUsers: 1,
+      multiLocation: false,
+      advancedReports: false,
+      apiAccess: false,
+      invoicing: false,
+    },
+  },
   STARTER: {
     name: 'Plan Starter',
     price: 850000,
