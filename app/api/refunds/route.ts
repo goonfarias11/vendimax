@@ -62,11 +62,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(refunds);
   } catch (error: unknown) {
-    logger.error("Error al obtener devoluciones:", error);
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+    logger.error("Error al obtener devoluciones:", error)
     return NextResponse.json(
-      { error: "Error al obtener devoluciones", details: errorMessage },
+      {
+        error: "Error al obtener devoluciones",
+        ...(process.env.NODE_ENV !== 'production' && { details: error instanceof Error ? error.message : String(error) })
+      },
       { status: 500 }
-    );
+    )
   }
 }
