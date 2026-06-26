@@ -240,3 +240,17 @@ export async function sendTrialExpiredEmail(data: {
     react: TrialExpiredEmail(data)
   })
 }
+
+// 12. Email de recuperación de contraseña
+export async function sendPasswordResetEmail(data: {
+  to: string
+  name: string
+  resetUrl: string
+}) {
+  const { PasswordResetEmail } = await import('@/emails')
+  return sendEmail({
+    to: data.to,
+    subject: 'Recuperá tu contraseña de VendiMax',
+    react: PasswordResetEmail({ name: data.name, resetUrl: data.resetUrl })
+  })
+}
