@@ -47,3 +47,12 @@ next-env.d.ts
 
 .vercel
 .env*.local
+
+# Scripts temporales de desarrollo (nunca commitear)
+temp*.js
+temp*.ts
+tmp*.js
+tmp*.ts
+update-pass.js
+update-*.js
+check-*.js
