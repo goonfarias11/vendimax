@@ -47,9 +47,8 @@ function verifyMercadoPagoSignature(request: NextRequest, body: unknown): boolea
     const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET
     
     if (!secret) {
-      console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado')
-      // En desarrollo, permitir sin verificación
-      return process.env.NODE_ENV === 'development'
+      console.warn('⚠️ MERCADOPAGO_WEBHOOK_SECRET no configurado — rechazando webhook')
+      return false
     }
 
     // Calcular HMAC SHA256
