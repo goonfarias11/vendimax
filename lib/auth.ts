@@ -3,7 +3,7 @@ import type { NextAuthConfig } from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import Google from "next-auth/providers/google"
 import Email from "next-auth/providers/email"
-import { compare, hash } from "bcrypt"
+import { compare, hash } from 'bcryptjs'
 import crypto from "crypto"
 import { prisma } from "@/lib/prisma"
 import { logger } from "@/lib/logger"
