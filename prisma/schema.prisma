@@ -34,7 +34,8 @@ model User {
   stockMovements     StockMovement[]
   systemLogs         SystemLog[]         @relation("SystemLogActor")
   systemSettings     SystemSetting[]     @relation("SystemSettingUpdater")
-  business           Business?           @relation(fields: [businessId], references: [id])
+  business             Business?             @relation(fields: [businessId], references: [id])
+  passwordResetTokens  PasswordResetToken[]
 
   @@index([email])
   @@index([role])
@@ -1177,4 +1178,18 @@ enum PaymentStatus {
   RECHAZADO
   VENCIDO
   CANCELADO
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
