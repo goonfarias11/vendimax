@@ -11,6 +11,8 @@ import { saleSchema } from "@/lib/validation/sale.schema"
 
 export const runtime = 'nodejs'
 
+const MAX_PAGE_SIZE = 100
+
 // GET: Listar ventas para historial
 export async function GET(request: NextRequest) {
   try {
@@ -31,7 +33,8 @@ export async function GET(request: NextRequest) {
     const paymentMethod = searchParams.get('paymentMethod')
     const status = searchParams.get('status')
     const page = Math.max(1, Number(searchParams.get('page') || 1))
-    const limit = Math.max(1, Number(searchParams.get('limit') || 50))
+    // Fix: cap máximo de paginación para evitar DoS
+    const limit = Math.min(Math.max(1, Number(searchParams.get('limit') || 50)), MAX_PAGE_SIZE)
     const skip = (page - 1) * limit
 
     const where: Prisma.SaleWhereInput = {
@@ -114,94 +117,77 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[API ERROR] GET /api/sales', error)
+    logger.error('[API ERROR] GET /api/sales', { error })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
 // Función para sanitizar números y evitar NaN/undefined
 const safeNumber = (value: unknown): number => {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : 0;
-};
-
-// Función para generar IDs únicos
-const generateId = (prefix: string = ''): string => {
-  return `${prefix}${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-};
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
 
 // Función para validar datos de entrada antes del procesamiento
 const validateSaleData = (data: any) => {
-  console.log("🔍 [VALIDATION] Iniciando validación de datos de venta");
-
-  // Validar que haya items
   if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
-    throw new Error("El carrito está vacío. Agregue al menos un producto.");
+    throw new Error("El carrito está vacío. Agregue al menos un producto.")
   }
 
-  // Validar cada item
   for (const item of data.items) {
     if (!item.productId || typeof item.productId !== 'string') {
-      throw new Error(`Producto inválido en el carrito: ${JSON.stringify(item)}`);
+      throw new Error(`Producto inválido en el carrito`)
     }
 
-    const quantity = safeNumber(item.quantity);
+    const quantity = safeNumber(item.quantity)
     if (quantity <= 0) {
-      throw new Error(`Cantidad inválida para producto ${item.productId}: ${item.quantity}`);
+      throw new Error(`Cantidad inválida para producto ${item.productId}`)
     }
 
-    const price = safeNumber(item.price || item.unitPrice);
+    const price = safeNumber(item.price || item.unitPrice)
     if (price <= 0) {
-      throw new Error(`Precio inválido para producto ${item.productId}: ${item.price || item.unitPrice}`);
+      throw new Error(`Precio inválido para producto ${item.productId}`)
     }
   }
 
-  console.log("✅ [VALIDATION] Datos básicos validados correctamente");
-  return true;
-};
+  return true
+}
 
 // Función para calcular totales de manera segura
 const calculateTotals = (items: any[], discount: number = 0, discountType: string = 'fixed') => {
-  console.log("🧮 [CALCULATION] Calculando totales de venta");
-
-  let subtotal = 0;
+  let subtotal = 0
 
   for (const item of items) {
-    const quantity = safeNumber(item.quantity) || 1;
-    const price = safeNumber(item.price || item.unitPrice);
-    const itemSubtotal = price * quantity;
+    const quantity = safeNumber(item.quantity) || 1
+    const price = safeNumber(item.price || item.unitPrice)
+    const itemSubtotal = price * quantity
 
     if (!Number.isFinite(itemSubtotal)) {
-      throw new Error(`Cálculo inválido para item: ${JSON.stringify(item)}`);
+      throw new Error(`Cálculo inválido para un item del carrito`)
     }
 
-    subtotal += itemSubtotal;
+    subtotal += itemSubtotal
   }
 
   const discountAmount = discountType === 'percentage'
     ? (subtotal * safeNumber(discount)) / 100
-    : safeNumber(discount);
+    : safeNumber(discount)
 
-  const total = Math.max(0, subtotal - discountAmount);
+  const total = Math.max(0, subtotal - discountAmount)
 
-  console.log(`✅ [CALCULATION] Subtotal: ${subtotal}, Descuento: ${discountAmount}, Total: ${total}`);
-
-  return { subtotal, discountAmount, total };
-};
+  return { subtotal, discountAmount, total }
+}
 
 // POST: Crear nueva venta
 export async function POST(request: NextRequest) {
-  const startTime = Date.now();
-  let businessId: string;
-  let session: any;
+  const startTime = Date.now()
+  let businessId: string
+  let session: any
 
   try {
-    console.log("🚀 [SALES API] Iniciando procesamiento de venta");
-
     // 1. Verificar permisos
     const permissionCheck = await requirePermission(request, 'pos:create_sale')
     if (!permissionCheck.authorized) {
-      console.log("❌ [PERMISSION] Permiso denegado para crear venta");
       return permissionCheck.response
     }
 
@@ -210,7 +196,6 @@ export async function POST(request: NextRequest) {
     const { success, limit, reset, remaining } = await salesRateLimit(ip)
 
     if (!success) {
-      console.log("❌ [RATE LIMIT] Límite de solicitudes excedido");
       return NextResponse.json(
         { error: "Demasiadas solicitudes. Intenta de nuevo más tarde." },
         {
@@ -228,25 +213,21 @@ export async function POST(request: NextRequest) {
     session = await auth()
     const tenantResult = await requireTenant(session)
     if (!tenantResult.authorized) {
-      console.log("❌ [AUTH] Tenant no autorizado");
       return tenantResult.response
     }
     businessId = tenantResult.tenant
-    console.log(`✅ [AUTH] Usuario autenticado: ${session.user.id}, Business: ${businessId}`);
 
     // 4. Obtener y validar datos de entrada
     const body = await request.json()
-    console.log("📦 [DATA] Datos recibidos:", JSON.stringify(body, null, 2));
 
-    // Validación inicial antes de Zod
-    validateSaleData(body);
+    validateSaleData(body)
 
     // 5. Normalizar items para el esquema
     if (Array.isArray(body.items)) {
       body.items = body.items.map((item: any) => {
-        const price = safeNumber(item.price ?? item.unitPrice);
-        const quantity = safeNumber(item.quantity) || 1;
-        const subtotal = price * quantity;
+        const price = safeNumber(item.price ?? item.unitPrice)
+        const quantity = safeNumber(item.quantity) || 1
+        const subtotal = price * quantity
 
         return {
           ...item,
@@ -255,14 +236,14 @@ export async function POST(request: NextRequest) {
           price,
           subtotal,
           discount: safeNumber(item.discount) || 0,
-        };
-      });
+        }
+      })
     }
 
     // 6. Validar con Zod
     const validationResult = saleSchema.safeParse(body)
     if (!validationResult.success) {
-      console.error("❌ [VALIDATION] Errores de validación:", validationResult.error.issues);
+      logger.warn('[SALES] Errores de validación Zod', { issues: validationResult.error.issues })
       return NextResponse.json(
         {
           error: "Datos de venta inválidos",
@@ -286,21 +267,10 @@ export async function POST(request: NextRequest) {
       payments = []
     } = validationResult.data
 
-    console.log(`✅ [VALIDATION] Datos validados: ${items.length} items, método de pago: ${paymentMethod}`);
-
     // 7. Calcular totales de manera segura
-    const { subtotal, discountAmount, total } = calculateTotals(items, discount, discountType);
+    const { subtotal, discountAmount, total } = calculateTotals(items, discount, discountType)
 
-    // 8. Generar número de ticket único
-    const lastSale = await prisma.sale.findFirst({
-      where: { userId: session.user.id },
-      orderBy: { ticketNumber: "desc" },
-      select: { ticketNumber: true }
-    })
-    const ticketNumber = (lastSale?.ticketNumber || 0) + 1
-    console.log(`🎫 [TICKET] Número de ticket generado: ${ticketNumber}`);
-
-    // 9. Buscar caja abierta del usuario
+    // 8. Buscar caja abierta del usuario
     const openCashRegister = await prisma.cashRegister.findFirst({
       where: {
         userId: session.user.id,
@@ -309,15 +279,17 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    if (!openCashRegister) {
-      console.log("⚠️ [CASH REGISTER] No hay caja abierta para el usuario");
-    }
-
-    // 10. EJECUTAR TRANSACCIÓN PRINCIPAL
-    console.log("🔄 [TRANSACTION] Iniciando transacción de venta");
+    // 9. EJECUTAR TRANSACCIÓN PRINCIPAL
     const sale = await prisma.$transaction(async (tx) => {
-      // 10.1 Crear la venta
-      console.log("📝 [SALE] Creando registro de venta");
+      // 9.1 Generar ticketNumber dentro de la transacción (evita race condition)
+      const lastSale = await tx.sale.findFirst({
+        where: { userId: session.user.id },
+        orderBy: { ticketNumber: "desc" },
+        select: { ticketNumber: true }
+      })
+      const ticketNumber = (lastSale?.ticketNumber || 0) + 1
+
+      // 9.2 Crear la venta
       const newSale = await tx.sale.create({
         data: {
           clientId,
@@ -335,10 +307,8 @@ export async function POST(request: NextRequest) {
           status: "COMPLETADO"
         }
       })
-      console.log(`✅ [SALE] Venta creada con ID: ${newSale.id}`);
 
-      // 10.2 Obtener o crear sucursal y almacén
-      console.log("🏢 [BRANCH] Buscando sucursal principal");
+      // 9.3 Obtener o crear sucursal y almacén
       let mainBranch = await tx.branch.findFirst({
         where: { businessId, isMain: true, isActive: true }
       })
@@ -350,10 +320,8 @@ export async function POST(request: NextRequest) {
       }
 
       if (!mainBranch) {
-        console.log("🏗️ [BRANCH] Creando sucursal principal");
         mainBranch = await tx.branch.create({
           data: {
-            id: generateId('branch_'),
             businessId,
             name: 'Sucursal Principal',
             code: 'MAIN',
@@ -363,7 +331,6 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      console.log("🏭 [WAREHOUSE] Buscando almacén principal");
       let mainWarehouse = await tx.warehouse.findFirst({
         where: {
           branchId: mainBranch.id,
@@ -382,10 +349,8 @@ export async function POST(request: NextRequest) {
       }
 
       if (!mainWarehouse) {
-        console.log("🏗️ [WAREHOUSE] Creando almacén principal");
         mainWarehouse = await tx.warehouse.create({
           data: {
-            id: generateId('warehouse_'),
             branchId: mainBranch.id,
             name: 'Almacén Principal',
             code: 'MAIN',
@@ -395,12 +360,8 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // 10.3 Procesar items de venta y actualizar stock
-      console.log(`📦 [ITEMS] Procesando ${items.length} items de venta`);
+      // 9.4 Procesar items de venta y actualizar stock
       for (const item of items) {
-        console.log(`🔍 [PRODUCT] Verificando producto: ${item.productId}`);
-
-        // Verificar que el producto existe y está activo
         const product = await tx.product.findFirst({
           where: { id: item.productId, businessId },
           select: { id: true, name: true, isActive: true }
@@ -410,7 +371,6 @@ export async function POST(request: NextRequest) {
           throw new Error(`Producto no disponible o inactivo: ${item.productId}`)
         }
 
-        // Crear item de venta
         await tx.saleItem.create({
           data: {
             saleId: newSale.id,
@@ -423,11 +383,7 @@ export async function POST(request: NextRequest) {
           }
         })
 
-        // Gestionar stock
         if (item.variantId) {
-          console.log(`📊 [STOCK] Gestionando stock de variante: ${item.variantId}`);
-
-          // Verificar variante
           const variant = await tx.productVariant.findFirst({
             where: { id: item.variantId, product: { businessId } },
             select: { id: true, isActive: true }
@@ -437,7 +393,6 @@ export async function POST(request: NextRequest) {
             throw new Error(`Variante no disponible: ${item.variantId}`)
           }
 
-          // Gestionar stock de variante (permitir negativo)
           await tx.variantStock.upsert({
             where: {
               variantId_warehouseId: {
@@ -458,9 +413,6 @@ export async function POST(request: NextRequest) {
             }
           })
         } else {
-          console.log(`📊 [STOCK] Gestionando stock de producto simple: ${item.productId}`);
-
-          // Gestionar stock de producto simple (permitir negativo)
           await tx.productStock.upsert({
             where: {
               productId_warehouseId: {
@@ -482,10 +434,8 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Registrar movimiento de stock
         await tx.stockMovement.create({
           data: {
-            id: generateId('stock_'),
             businessId,
             productId: item.productId,
             variantId: item.variantId || null,
@@ -499,9 +449,8 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // 10.4 Crear pagos mixtos si aplica
+      // 9.5 Crear pagos mixtos si aplica
       if (hasMixedPayment && payments && payments.length > 0) {
-        console.log(`💳 [PAYMENTS] Creando ${payments.length} pagos mixtos`);
         for (const payment of payments) {
           await tx.salePayment.create({
             data: {
@@ -514,9 +463,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 10.5 Registrar movimiento de caja (solo si no es cuenta corriente)
+      // 9.6 Registrar movimiento de caja (solo si no es cuenta corriente)
       if (paymentMethod !== "CUENTA_CORRIENTE") {
-        console.log("💰 [CASH] Registrando movimiento de caja");
         await tx.cashMovement.create({
           data: {
             userId: session.user.id,
@@ -530,10 +478,8 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      // 10.6 Actualizar cliente si aplica
+      // 9.7 Actualizar cliente si aplica
       if (clientId) {
-        console.log(`👤 [CLIENT] Actualizando cliente: ${clientId}`);
-
         const updateData: Prisma.ClientUpdateInput = {
           lastPurchaseAt: new Date()
         }
@@ -547,7 +493,6 @@ export async function POST(request: NextRequest) {
           data: updateData
         })
 
-        // Gestionar cuenta corriente
         if (paymentMethod === "CUENTA_CORRIENTE") {
           const newDebt = Number(updatedClient.currentDebt) + total
 
@@ -558,10 +503,8 @@ export async function POST(request: NextRequest) {
             })
           }
 
-          // Registrar en log de actividad
           await tx.clientActivityLog.create({
             data: {
-              id: generateId('log_'),
               clientId,
               action: 'SALE',
               description: `Venta a crédito #${ticketNumber} por $${total}`,
@@ -579,16 +522,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      console.log("✅ [TRANSACTION] Transacción completada exitosamente");
-      return newSale
+      return { sale: newSale, ticketNumber }
     })
 
-    // 11. Generar factura ARCA si se solicita (fuera de la transacción principal)
+    // 10. Generar factura ARCA si se solicita (fuera de la transacción principal)
     let arcaInvoice = null
     if ((body.generateArcaInvoice || body.generateAfipInvoice) && body.documentType !== "ticket") {
       try {
-        console.log("📄 [INVOICE] Generando factura ARCA");
-
         const arcaConfig = await prisma.afipConfig.findUnique({
           where: { businessId }
         })
@@ -625,7 +565,7 @@ export async function POST(request: NextRequest) {
                 'Cookie': request.headers.get('cookie') || ''
               },
               body: JSON.stringify({
-                saleId: sale.id,
+                saleId: sale.sale.id,
                 pointOfSaleId: pointOfSale.id,
                 voucherType,
                 documentType,
@@ -636,35 +576,31 @@ export async function POST(request: NextRequest) {
             if (invoiceResponse.ok) {
               const invoiceData = await invoiceResponse.json()
               arcaInvoice = invoiceData.invoice
-              console.log("✅ [INVOICE] Factura ARCA generada exitosamente");
             } else {
-              console.error('❌ [INVOICE] Error al generar factura ARCA:', await invoiceResponse.text())
+              logger.error('[SALES] Error al generar factura ARCA', { status: invoiceResponse.status })
             }
           }
         }
       } catch (arcaError) {
-        console.error('❌ [INVOICE] Error en generación de factura ARCA:', arcaError)
+        logger.error('[SALES] Error en generación de factura ARCA', { error: arcaError })
         // No fallar la venta si falla la factura
       }
     }
 
-    const processingTime = Date.now() - startTime;
-    console.log(`🎉 [SUCCESS] Venta completada exitosamente en ${processingTime}ms. ID: ${sale.id}`);
+    const processingTime = Date.now() - startTime
+    logger.info('[SALES] Venta completada', { saleId: sale.sale.id, processingTime })
 
     return NextResponse.json({
-      ...sale,
+      ...sale.sale,
       arcaInvoice,
       afipInvoice: arcaInvoice,
       processingTime
     }, { status: 201 })
 
   } catch (error) {
-    const processingTime = Date.now() - startTime;
-    console.error(`❌ [ERROR] Error en procesamiento de venta (${processingTime}ms):`, error)
-    console.error("[ERROR] Stack:", error instanceof Error ? error.stack : "N/A")
-    console.error("[ERROR] Type:", typeof error)
+    const processingTime = Date.now() - startTime
+    logger.error('[SALES] Error en procesamiento de venta', { error, processingTime })
 
-    // Manejo específico de errores de Prisma
     const errorCode = typeof error === 'object' && error !== null && 'code' in error
       ? (error as { code?: string }).code
       : undefined
@@ -696,36 +632,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Errores de negocio específicos
     const errorMessage = error instanceof Error ? error.message : String(error)
 
     if (errorMessage.includes('Producto no disponible')) {
       return NextResponse.json(
-        { error: "Producto no disponible", details: errorMessage },
+        { error: "Producto no disponible" },
         { status: 400 }
       )
     }
 
     if (errorMessage.includes('Variante no disponible')) {
       return NextResponse.json(
-        { error: "Variante de producto no disponible", details: errorMessage },
+        { error: "Variante de producto no disponible" },
         { status: 400 }
       )
     }
 
     if (errorMessage.includes('carrito está vacío')) {
       return NextResponse.json(
-        { error: "Carrito vacío", details: errorMessage },
+        { error: "Carrito vacío" },
         { status: 400 }
       )
     }
 
-    // Error genérico
+    // Error genérico — no exponer detalles internos en producción
     return NextResponse.json(
       {
         error: "Error interno del servidor",
-        details: errorMessage,
-        code: errorCode || "UNKNOWN",
+        ...(process.env.NODE_ENV !== 'production' && { details: errorMessage, code: errorCode }),
         processingTime
       },
       { status: 500 }
