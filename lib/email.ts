@@ -241,16 +241,47 @@ export async function sendTrialExpiredEmail(data: {
   })
 }
 
-// 12. Email de recuperación de contraseña
+// 12. Email de recuperación de contraseña (HTML directo, sin React component)
 export async function sendPasswordResetEmail(data: {
   to: string
   name: string
   resetUrl: string
 }) {
-  const { PasswordResetEmail } = await import('@/emails')
-  return sendEmail({
-    to: data.to,
-    subject: 'Recuperá tu contraseña de VendiMax',
-    react: PasswordResetEmail({ name: data.name, resetUrl: data.resetUrl })
-  })
+  const html = `
+    <div style="font-family:sans-serif;max-width:480px;margin:40px auto;background:#fff;border-radius:8px;padding:40px;border:1px solid #e4e4e7">
+      <h2 style="color:#18181b;font-size:22px;margin-bottom:8px">Recuperación de contraseña</h2>
+      <p style="color:#52525b;font-size:15px;line-height:1.6">
+        Hola ${data.name}, recibimos una solicitud para restablecer la contraseña de tu cuenta en VendiMax.
+      </p>
+      <div style="text-align:center;margin:32px 0">
+        <a href="${data.resetUrl}" style="background:#2563eb;color:#fff;padding:12px 28px;border-radius:6px;font-size:15px;font-weight:600;text-decoration:none;display:inline-block">
+          Restablecer contraseña
+        </a>
+      </div>
+      <p style="color:#71717a;font-size:13px">
+        Este enlace expira en <strong>1 hora</strong>. Si no solicitaste este cambio, podés ignorar este email.
+      </p>
+      <hr style="border-color:#e4e4e7;margin:24px 0"/>
+      <p style="color:#a1a1aa;font-size:12px">
+        VendiMax · Si el botón no funciona, copiá este link: <a href="${data.resetUrl}">${data.resetUrl}</a>
+      </p>
+    </div>
+  `
+
+  const resendClient = getResend()
+  if (!resendClient) return { success: false, error: 'Resend no inicializado' }
+
+  try {
+    const { data: result, error } = await resendClient.emails.send({
+      from: process.env.EMAIL_FROM || 'VendiMax <notificaciones@vendimax.com>',
+      to: data.to,
+      subject: 'Recuperá tu contraseña de VendiMax',
+      html
+    })
+    if (error) return { success: false, error }
+    return { success: true, data: result }
+  } catch (error) {
+    console.error('❌ Error enviando email de recuperación:', error)
+    return { success: false, error }
+  }
 }
