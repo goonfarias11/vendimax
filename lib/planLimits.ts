@@ -153,6 +153,7 @@ export async function getCurrentPlanInfo(businessId: string) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const salesCount = await prisma.sale.count({
     where: {
+      businessId,
       createdAt: {
         gte: startOfMonth,
       },
