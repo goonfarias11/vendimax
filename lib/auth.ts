@@ -169,7 +169,7 @@ export const authConfig = {
             name: user?.name || email,
             passwordHash: await hash(randomPass, 10),
             role: isOwner ? "OWNER" : "ADMIN",
-            adminRole: "super_admin",
+            adminRole: isOwner ? "super_admin" : "user",
             isActive: true,
           },
         })
