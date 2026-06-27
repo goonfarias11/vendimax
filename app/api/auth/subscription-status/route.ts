@@ -12,8 +12,8 @@ export async function GET() {
       return NextResponse.json({ access: false, reason: "unauthenticated" })
     }
 
-    // Admins siempre tienen acceso
-    if (session.user.role === "ADMIN" || session.user.adminRole) {
+    // Solo super_admins tienen acceso sin suscripción
+    if (session.user.adminRole === "super_admin") {
       return NextResponse.json({ access: true, reason: "admin" })
     }
 
