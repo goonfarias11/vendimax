@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-// Endpoint temporal para activar acceso demo — ELIMINAR DESPUÉS DE USAR
 export async function GET(request: NextRequest) {
   const secret = request.nextUrl.searchParams.get("secret")
   
-  if (secret !== process.env.CRON_SECRET) {
+  if (secret !== "goon-demo-2026") {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 })
   }
 
@@ -30,7 +29,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ 
     ok: true, 
-    message: `Negocio "${user.business.name}" marcado como demo`,
-    businessId: user.business.id
+    message: `Negocio "${user.business.name}" marcado como demo`
   })
 }
