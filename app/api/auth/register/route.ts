@@ -46,8 +46,8 @@ export async function POST(req: NextRequest) {
           name,
           email,
           passwordHash,
-          role: "OWNER", // El primer usuario es dueño
-          adminRole: "super_admin",
+          role: "OWNER", // El primer usuario es dueño del negocio
+          adminRole: "user", // No es admin de la plataforma
         },
       });
 
