@@ -7,7 +7,7 @@ import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardTopbar } from "@/components/dashboard/topbar";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ImpersonationBanner } from "@/components/dashboard/impersonation-banner";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardLayout({
@@ -17,6 +17,11 @@ export default function DashboardLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
+  const [subscriptionStatus, setSubscriptionStatus] = useState<{
+    access: boolean;
+    reason: string;
+    daysLeft?: number;
+  } | null>(null);
   const { data: session, status } = useSession();
   const router = useRouter();
 
@@ -27,7 +32,6 @@ export default function DashboardLayout({
         setLoadingTimeout(true);
       }
     }, 10000);
-
     return () => clearTimeout(timer);
   }, [status]);
 
@@ -37,6 +41,16 @@ export default function DashboardLayout({
       router.push("/login");
     }
   }, [status, router]);
+
+  // Verificar suscripción cuando hay sesión
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetch("/api/auth/subscription-status")
+        .then(r => r.json())
+        .then(data => setSubscriptionStatus(data))
+        .catch(() => setSubscriptionStatus({ access: true, reason: "error" }));
+    }
+  }, [status]);
 
   // Pantalla de error si el timeout se cumplió
   if (loadingTimeout && status === "loading") {
@@ -67,13 +81,12 @@ export default function DashboardLayout({
   }
 
   // Estado de carga normal
-  if (status === "loading") {
+  if (status === "loading" || (status === "authenticated" && !subscriptionStatus)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg font-medium">Cargando sesión...</p>
-          <p className="text-gray-400 text-sm mt-2">Por favor espera</p>
+          <p className="text-gray-600 text-lg font-medium">Cargando...</p>
         </div>
       </div>
     );
@@ -84,22 +97,89 @@ export default function DashboardLayout({
     return null;
   }
 
+  // Sin acceso — bloquear con pantalla de suscripción
+  if (subscriptionStatus && !subscriptionStatus.access) {
+    const messages: Record<string, { title: string; desc: string }> = {
+      no_subscription: {
+        title: "Activá tu suscripción",
+        desc: "Para acceder al dashboard necesitás elegir un plan.",
+      },
+      trial_expired: {
+        title: "Tu período de prueba terminó",
+        desc: "Elegí un plan para continuar usando VendiMax.",
+      },
+      pending: {
+        title: "Pago pendiente",
+        desc: "Tu suscripción está pendiente de pago. Completá el pago para continuar.",
+      },
+      cancelled: {
+        title: "Suscripción cancelada",
+        desc: "Tu suscripción fue cancelada. Podés reactivarla eligiendo un plan.",
+      },
+      no_business: {
+        title: "Configuración incompleta",
+        desc: "Necesitás completar la configuración de tu negocio.",
+      },
+    };
+
+    const msg = messages[subscriptionStatus.reason] || {
+      title: "Acceso restringido",
+      desc: "No tenés acceso al dashboard en este momento.",
+    };
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md p-8 bg-white rounded-xl shadow-sm border border-gray-100">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
+            <Lock className="w-8 h-8 text-blue-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">{msg.title}</h1>
+          <p className="text-gray-600 mb-6">{msg.desc}</p>
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={() => router.push("/precios")}
+              className="bg-blue-600 hover:bg-blue-700 w-full"
+            >
+              Ver planes
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => router.push("/login")}
+              className="w-full"
+            >
+              Cerrar sesión
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 print:bg-white">
+      {/* Banner de trial si quedan pocos días */}
+      {subscriptionStatus?.reason === "trial" && subscriptionStatus.daysLeft !== undefined && subscriptionStatus.daysLeft <= 7 && (
+        <div className="bg-amber-500 text-white text-center text-sm py-2 px-4">
+          ⏳ Tu período de prueba vence en <strong>{subscriptionStatus.daysLeft} día{subscriptionStatus.daysLeft !== 1 ? "s" : ""}</strong>.{" "}
+          <button onClick={() => router.push("/precios")} className="underline font-semibold">
+            Elegí un plan ahora
+          </button>
+        </div>
+      )}
       <ImpersonationBanner />
       <div className="print:hidden">
         <DashboardSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       </div>
-      
+
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-30 bg-black/50 md:hidden print:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      
+
       <div className="md:pl-64 print:pl-0">
-        <div className="print:hidden" style={{ marginTop: typeof window !== 'undefined' && sessionStorage.getItem('impersonation') ? '52px' : '0' }}>
+        <div className="print:hidden" style={{ marginTop: typeof window !== "undefined" && sessionStorage.getItem("impersonation") ? "52px" : "0" }}>
           <DashboardTopbar onMenuClick={() => setSidebarOpen(true)} />
         </div>
         <main className="p-6 print:p-8">
