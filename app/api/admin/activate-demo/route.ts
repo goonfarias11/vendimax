@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization")
-    const secret = authHeader?.replace("Bearer ", "") || ""
-
-    if (!secret || secret !== process.env.CRON_SECRET) {
+    // Verificar que sea super_admin
+    const session = await auth()
+    if (!session?.user || session.user.adminRole !== "super_admin") {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 })
     }
 
