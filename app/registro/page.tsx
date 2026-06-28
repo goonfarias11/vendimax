@@ -46,7 +46,7 @@ export default function RegisterPage() {
         return
       }
 
-      router.push("/login?registered=true")
+      router.push("/precios?registered=true")
     } catch (err) {
       setError("Error al conectar con el servidor")
       setLoading(false)
