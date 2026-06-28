@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
-import { createFreeTrial } from "@/lib/freeTrial";
 import { signIn } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -69,14 +68,6 @@ export async function POST(req: NextRequest) {
 
       return { user, business };
     });
-
-    // Crear prueba gratuita
-    const trialResult = await createFreeTrial(result.business.id);
-
-    if (!trialResult.success) {
-      console.error("Error al crear trial:", trialResult.error);
-    }
-
     return NextResponse.json({
       success: true,
       userId: result.user.id,
