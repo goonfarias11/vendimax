@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: \`Acceso demo activado para "\${user.business.name}"\`
+      message: "Acceso demo activado para " + user.business.name
     })
   } catch (error) {
     return NextResponse.json({ error: "Error interno" }, { status: 500 })
