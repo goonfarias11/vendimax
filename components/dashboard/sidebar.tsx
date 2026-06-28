@@ -145,7 +145,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
         {/* Admin Panel Link */}
         {(adminRole === "super_admin" || adminRole === "admin") && !collapsed && (
           <div className="px-3 py-2">
-            <a
+            <Link
               href="/admin"
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
             >
@@ -154,7 +154,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               Panel Admin
-            </a>
+            </Link>
           </div>
         )}
 
