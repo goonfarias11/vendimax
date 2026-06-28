@@ -206,14 +206,16 @@ export const authConfig = {
           token.role = (user as any).role
           token.adminRole = (user as any).adminRole
           token.businessId = (user as any).businessId
-        } else if (token.id && !token.businessId) {
-          // Si no hay businessId en el token, buscarlo en la DB
+        } else if (token.id) {
+          // Siempre refrescar role y adminRole desde la DB
           const dbUser = await prisma.user.findUnique({
             where: { id: token.id as string },
             include: { business: true },
           })
-          if (dbUser && dbUser.business) {
-            token.businessId = dbUser.business.id
+          if (dbUser) {
+            token.role = dbUser.role
+            token.adminRole = dbUser.adminRole
+            token.businessId = dbUser.businessId || dbUser.business?.id || token.businessId
           }
         }
         return token
