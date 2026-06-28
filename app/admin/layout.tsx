@@ -16,8 +16,9 @@ export default async function AdminLayout({
     redirect("/login?next=/admin")
   }
 
+  // Debug: si tiene sesión pero no acceso, mostrar 403 con info
   if (!hasAdminPanelAccess(session.user.adminRole, session.user.role)) {
-    redirect("/403")
+    redirect(`/403?role=${session.user.role}&adminRole=${session.user.adminRole}`)
   }
 
   const notifications = await getAdminNotificationCount()
