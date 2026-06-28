@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, type FormEvent } from "react"
-import { signIn } from "next-auth/react"
+import { useState, type FormEvent, useEffect } from "react"
+import { signIn, useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,15 @@ const adminEmail = "" // sección de acceso admin deshabilitada
 
 export default function LoginClient({ nextParam }: { nextParam: string }) {
   const router = useRouter()
+  const { data: session, status } = useSession()
   const [email, setEmail] = useState("")
+
+  // Si ya tiene sesión activa, redirigir directamente
+  useEffect(() => {
+    if (status === "authenticated") {
+      router.push(nextParam || "/dashboard")
+    }
+  }, [status, nextParam, router])
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
