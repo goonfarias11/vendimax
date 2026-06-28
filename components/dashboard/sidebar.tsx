@@ -85,7 +85,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
                 <span className="text-lg font-bold text-white">V</span>
               </div>
               <span className="text-xl font-bold text-gray-900">VendiMax</span>
-            </Link>
+            </a>
           )}
           
           {/* Botón cerrar en móvil */}
@@ -145,8 +145,10 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
         {/* Admin Panel Link */}
         {(adminRole === "super_admin" || adminRole === "admin") && !collapsed && (
           <div className="px-3 py-2">
-            <Link
+            <a
               href="/admin"
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
