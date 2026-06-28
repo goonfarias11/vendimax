@@ -49,6 +49,29 @@ export function SubscriptionsTable({ rows, plans }: SubscriptionsTableProps) {
     }
   }
 
+  async function activateDemo(email: string, subscriptionId: string) {
+    try {
+      setLoadingId(subscriptionId)
+      const response = await fetch("/api/admin/activate-demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: "Error inesperado" }))
+        throw new Error(data.error || "No se pudo activar el acceso demo")
+      }
+
+      toast.success("Acceso demo activado correctamente")
+      router.refresh()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Error inesperado")
+    } finally {
+      setLoadingId(null)
+    }
+  }
+
   return (
     <>
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -133,6 +156,15 @@ export function SubscriptionsTable({ rows, plans }: SubscriptionsTableProps) {
                       }}
                     >
                       Extender trial
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={loadingId === row.id}
+                      className="border-green-300 text-green-700 hover:bg-green-50"
+                      onClick={() => activateDemo(row.businessEmail, row.id)}
+                    >
+                      Activar demo
                     </Button>
                   </div>
                 </td>
