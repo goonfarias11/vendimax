@@ -5,20 +5,25 @@ import { getToken } from 'next-auth/jwt';
 export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/admin')) {
     const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET;
-
-    // Try all cookie names NextAuth v5 might use
-    const cookieNames = request.cookies.getAll().map(c => c.name);
-    console.log('[MIDDLEWARE] cookies:', cookieNames.join(', '));
-    console.log('[MIDDLEWARE] AUTH_SECRET present:', !!process.env.AUTH_SECRET);
-    console.log('[MIDDLEWARE] NEXTAUTH_SECRET present:', !!process.env.NEXTAUTH_SECRET);
-
     const token = await getToken({ req: request, secret });
-    console.log('[MIDDLEWARE] token:', token ? JSON.stringify({ adminRole: token.adminRole, role: token.role }) : 'null');
 
     if (!token) {
-      // TEMPORALMENTE: dejar pasar para ver si el problema es el token o algo más
-      // return NextResponse.redirect(new URL('/login?next=/admin', request.url));
-      console.log('[MIDDLEWARE] No token found, but letting through for debug');
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('next', request.nextUrl.pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    const adminRole = token.adminRole as string | undefined;
+    const role = token.role as string | undefined;
+
+    const hasAccess =
+      adminRole === 'super_admin' ||
+      adminRole === 'admin' ||
+      role === 'OWNER' ||
+      role === 'ADMIN';
+
+    if (!hasAccess) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
     }
   }
 
