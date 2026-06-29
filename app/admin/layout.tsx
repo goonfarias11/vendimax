@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { AdminSidebar } from "@/components/admin/admin-sidebar"
 import { AdminTopbar } from "@/components/admin/admin-topbar"
 
@@ -13,14 +13,16 @@ export default function AdminLayout({
 }) {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const adminRole = (session?.user as any)?.adminRole
-  const role = (session?.user as any)?.role
+  const [authorized, setAuthorized] = useState(false)
 
   useEffect(() => {
     if (status === "loading") return
 
+    const adminRole = (session?.user as any)?.adminRole
+    const role = (session?.user as any)?.role
+
     if (!session?.user) {
-      router.push("/login?next=/admin")
+      router.replace("/login?next=/admin")
       return
     }
 
@@ -30,27 +32,19 @@ export default function AdminLayout({
       role === "OWNER" ||
       role === "ADMIN"
 
-    if (!hasAccess) {
-      router.push("/403")
+    if (hasAccess) {
+      setAuthorized(true)
+    } else {
+      router.replace("/dashboard")
     }
-  }, [status, session, adminRole, role, router])
+  }, [status, session, router])
 
-  if (status === "loading") {
+  if (status === "loading" || !authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-purple-600"></div>
       </div>
     )
-  }
-
-  const hasAccess =
-    adminRole === "super_admin" ||
-    adminRole === "admin" ||
-    role === "OWNER" ||
-    role === "ADMIN"
-
-  if (!session?.user || !hasAccess) {
-    return null
   }
 
   return (
