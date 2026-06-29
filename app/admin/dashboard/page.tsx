@@ -36,12 +36,12 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <MetricCard title="Usuarios totales" value={dashboard.totals.totalUsers} />
-        <MetricCard title="Usuarios activos" value={dashboard.totals.activeUsers} />
-        <MetricCard title="Usuarios pagos" value={dashboard.totals.payingUsers} />
+        <MetricCard title="Usuarios totales" value={String(dashboard.totals.totalUsers)} />
+        <MetricCard title="Usuarios activos" value={String(dashboard.totals.activeUsers)} />
+        <MetricCard title="Usuarios pagos" value={String(dashboard.totals.payingUsers)} />
         <MetricCard title="MRR" value={"$" + dashboard.totals.monthlyRecurringRevenue.toLocaleString("es-AR")} />
-        <MetricCard title="Nuevos hoy" value={dashboard.totals.newUsersToday} />
-        <MetricCard title="Tickets abiertos" value={dashboard.totals.openSupportTickets} />
+        <MetricCard title="Nuevos hoy" value={String(dashboard.totals.newUsersToday)} />
+        <MetricCard title="Tickets abiertos" value={String(dashboard.totals.openSupportTickets)} />
       </div>
 
       <Card>
