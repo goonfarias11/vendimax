@@ -156,7 +156,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               Panel Admin
-            </Link>
+            </a>
           </div>
         )}
 
