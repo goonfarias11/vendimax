@@ -52,7 +52,7 @@ export default function AdminDashboardPage() {
           </Link>
         </CardHeader>
         <CardContent>
-          <DashboardCharts data={dashboard.charts} />
+          <DashboardCharts userGrowth={dashboard.charts.userGrowth} monthlyRevenue={dashboard.charts.monthlyRevenue} conversion={dashboard.charts.freeToPaidConversion} />
         </CardContent>
       </Card>
     </div>
