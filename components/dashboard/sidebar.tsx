@@ -53,6 +53,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
 
   const userRole = (session?.user as any)?.role as Role;
   const adminRole = (session?.user as any)?.adminRole as string;
+  const isSuperAdmin = adminRole === "super_admin";
 
   // Filtrar menú según permisos del rol
   const accessibleMenuItems = menuItems.filter(item => 
@@ -143,7 +144,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
         </nav>
 
         {/* Admin Panel Link */}
-        {(adminRole === "super_admin" || adminRole === "admin") && !collapsed && (
+        {isSuperAdmin && !collapsed && (
           <div className="px-3 py-2">
             <a
               href="/admin"
