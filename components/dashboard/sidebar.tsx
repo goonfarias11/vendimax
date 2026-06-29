@@ -85,7 +85,7 @@ export function DashboardSidebar({ isOpen = true, onClose }: SidebarProps) {
                 <span className="text-lg font-bold text-white">V</span>
               </div>
               <span className="text-xl font-bold text-gray-900">VendiMax</span>
-            </a>
+            </Link>
           )}
           
           {/* Botón cerrar en móvil */}
