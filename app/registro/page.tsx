@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { signIn } from "next-auth/react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -46,7 +47,19 @@ export default function RegisterPage() {
         return
       }
 
-      router.push("/precios?registered=true")
+      // Login automático después del registro
+      const loginResult = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (loginResult?.ok) {
+        router.push("/precios")
+      } else {
+        // Si el auto-login falla, mandar al login manual
+        router.push("/login?next=/precios&registered=true")
+      }
     } catch (err) {
       setError("Error al conectar con el servidor")
       setLoading(false)
