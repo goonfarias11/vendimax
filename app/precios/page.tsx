@@ -91,7 +91,7 @@ export default function PreciosPage() {
       const res = await fetch("/api/subscriptions-ars/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planSlug: slug, billingCycle: "MENSUAL" }),
+        body: JSON.stringify({ planSlug: slug, billingCycle: "monthly" }),
       });
 
       const data = await res.json();
