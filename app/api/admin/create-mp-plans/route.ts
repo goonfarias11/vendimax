@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@/lib/auth"
+import { getToken } from "next-auth/jwt"
 
 export const runtime = "nodejs"
 
 export async function GET(req: NextRequest) {
-  const session = await auth()
-  const adminRole = (session?.user as any)?.adminRole
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
+  const token = await getToken({ req, secret })
+  const adminRole = token?.adminRole as string | undefined
 
-  if (adminRole !== "super_admin") {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 })
+  if (!token || adminRole !== "super_admin") {
+    return NextResponse.json({ error: "No autorizado", adminRole, hasToken: !!token }, { status: 401 })
   }
 
   const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN!
@@ -47,7 +48,7 @@ export async function GET(req: NextRequest) {
       })
 
       const data = await res.json()
-      results.push({ slug: plan.slug, id: data.id, status: res.status, data })
+      results.push({ slug: plan.slug, id: data.id, status: res.status, error: data.message })
     } catch (error) {
       results.push({ slug: plan.slug, error: String(error) })
     }
